@@ -141,9 +141,9 @@ interpret e = interpret' e emptyEnvironment
 emptyEnvironment :: Environment
 emptyEnvironment = M.empty
 
-toVInt :: Value -> Either String Integer
-toVInt (VInt i) = Right i
-toVInt _        = Left "The value is not an integer!"
+fromVInt :: Value -> Either String Integer
+fromVInt (VInt i) = Right i
+fromVInt _        = Left "The value is not an integer!"
 
 interpret' :: AST -> Environment -> EvalResult
 interpret' (ABool b) _  = Right (VBool b)
@@ -160,7 +160,7 @@ interpret' (APlus e1 e2) env =
        i2 <- getInt e2
        return (VInt (i1 + i2))
     where
-      getInt e = toVInt =<< interpret' e env
+      getInt e = fromVInt =<< interpret' e env
 interpret' (AAbs v b) _ =
     case v of
       AVar x -> Right (VAbs x b)
