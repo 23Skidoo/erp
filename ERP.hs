@@ -20,7 +20,6 @@ parse = undefined
 -- Typechecker.
 ---------------
 -- Types.
--- TODO: tuples, sets
 data SimpleType = STBool | STInt | STStr
                 | STFun SimpleType SimpleType | STBase String
                   deriving (Eq, Show)
@@ -31,6 +30,7 @@ data TypeScheme = TSVar SimpleType | TSForAll String TypeScheme
 data Type = TSimple SimpleType | TScheme TypeScheme
             deriving (Eq, Show)
 
+-- Type pretty-printing.
 showSimpleType :: SimpleType -> String
 showSimpleType STBool = "bool"
 showSimpleType STInt = "int"
@@ -46,16 +46,35 @@ showType :: Type -> String
 showType (TSimple st) = showSimpleType st
 showType (TScheme ts) = showTypeScheme ts
 
--- Internals.
+-- Unification.
 type Constraint = (SimpleType, SimpleType)
 
 type ConstraintSet = [Constraint]
 
+type Substitution = ConstraintSet
+
+mergeSubstitutions :: Substitution -> Substitution -> Substitution
+mergeSubstitutions = undefined
+
+unify :: ConstraintSet -> Substitution
+unify = undefined
+
+applySubstitution :: Substitution -> Type -> Type
+applySubstitution = undefined
+
+-- Typing context.
 type TypingContext = M.Map String SimpleType
 
 emptyTypingContext :: TypingContext
 emptyTypingContext = M.empty
 
+lookupCtx :: String -> TypingContext -> Maybe SimpleType
+lookupCtx n ctx = M.lookup n ctx
+
+insertCtx :: String -> SimpleType -> TypingContext -> TypingContext
+insertCtx k v ctx = M.insert k v ctx
+
+-- Symbol generator.
 type Sym = String
 type SymGen = () -> NextSym
 data NextSym = NextSym (Sym, SymGen)
@@ -64,23 +83,17 @@ symgen :: SymGen
 symgen = let f x () = NextSym ("x_" ++ show x, f (x+1))
          in f 0
 
+-- Typing info : gensym + constraint set.
 data TypingInfo = TypingInfo {
-      ctx:: TypingContext,
       gens:: SymGen, constrs:: ConstraintSet }
 
 emptyTypingInfo :: TypingInfo
-emptyTypingInfo = TypingInfo { ctx = emptyTypingContext,
-                               gens = symgen, constrs = []}
+emptyTypingInfo = TypingInfo { gens = symgen, constrs = []}
 
+-- Helper functions for working with TypingInfo.
 gensym :: TypingInfo -> (Sym, TypingInfo)
 gensym ti = let NextSym (sym, ngens) = gens ti ()
             in (sym, ti { gens = ngens })
-
-lookupCtx :: String -> TypingInfo -> Maybe SimpleType
-lookupCtx n ti = M.lookup n (ctx ti)
-
-insertCtx :: String -> SimpleType -> TypingInfo -> TypingInfo
-insertCtx k v ti = ti { ctx = M.insert k v (ctx ti) }
 
 insertConstr :: Constraint -> TypingInfo -> TypingInfo
 insertConstr c ti = let oldconstrs = constrs ti
@@ -90,48 +103,54 @@ insertConstrs :: [Constraint] -> TypingInfo -> TypingInfo
 insertConstrs cs ti = let oldconstrs = constrs ti
                       in ti { constrs = (cs ++ oldconstrs) }
 
+type TypecheckResult = Either String (Type, TypingInfo)
+
 simpleType :: (SimpleType, TypingInfo) -> Either a (Type, TypingInfo)
 simpleType (t, ti) = Right (TSimple t, ti)
 
-type TypecheckResult = Either String (Type, TypingInfo)
+typecheck' :: AST -> TypingInfo -> TypingContext -> TypecheckResult
+typecheck' (ABool _) ti _ = simpleType (STBool , ti)
+typecheck' (AInt  _) ti _ = simpleType (STInt  , ti)
+typecheck' (AStr  _) ti _ = simpleType (STStr  , ti)
 
-typecheck' :: AST -> TypingInfo -> TypecheckResult
-typecheck' (ABool _) ti = simpleType (STBool , ti)
-typecheck' (AInt  _) ti = simpleType (STInt  , ti)
-typecheck' (AStr  _) ti = simpleType (STStr  , ti)
-typecheck' (AVar n) ti =
-    case lookupCtx n ti of
+typecheck' (AVar n) ti ctx =
+    case lookupCtx n ctx of
       Just t -> Right ((TSimple t), ti)
       Nothing -> Left ("Unknown variable '" ++ n ++ "'!")
 
-typecheck' (AAbs (AVar v) b) ti =
-    case typecheck' b (insertCtx v (STBase sym) nti)
-    of Right ((TSimple t), _) -> Right (TSimple (STFun (STBase sym) t), nti)
+typecheck' (AAbs (AVar v) b) ti ctx =
+    case typecheck' b nti (insertCtx v varType ctx)
+    of Right ((TSimple t), nti2) -> Right (TSimple funType, nti2)
+           where
+             funType = (STFun varType t)
+             --newFunType = applySubstitution (constrs nti2) funType
        l -> l
     where
       (sym, nti) = gensym ti
+      varType = STBase sym
 
-typecheck' (APlus e1 e2) ti =
-    do t1 <- getSimpleType e1
-       t2 <- getSimpleType e2
+typecheck' (APlus e1 e2) ti ctx =
+    do (t1, ti1) <- getSimpleType e1 ti ctx
+       (t2, ti2) <- getSimpleType e2 ti1 ctx
        let newti = insertConstrs [(t1, STInt),
-                                  (t2, STInt)] ti
+                                  (t2, STInt)] ti2
        return (TSimple STInt, newti)
     where
-      getSimpleType e = typecheck' e ti >>= getSimpleType'
+      getSimpleType e ti' ctx' = typecheck' e ti' ctx' >>= getSimpleType'
 
-      getSimpleType' (TSimple t, _) = Right t
-      getSimpleType' _ = Left "Operand of plus is not a simple type!"
+      getSimpleType' (TSimple t, ti') = return (t, ti')
+      getSimpleType' _ = fail "One of plus's operands is not a simple type"
 
-typecheck' (AApp _ _) _  = undefined
-typecheck' _ _           = Left "Can't typecheck!"
+typecheck' (AApp _ _) _ _  = undefined
+typecheck' _ _ _           = Left "Can't typecheck!"
 
 -- Client interface.
 
 typecheck :: AST -> String
-typecheck ast = case typecheck' ast emptyTypingInfo
-                of Left l -> error l
-                   Right (t, _) -> showType t
+typecheck ast =
+    case typecheck' ast emptyTypingInfo emptyTypingContext
+    of Left l -> error l
+       Right (t, _) -> showType t
 
 -- Interpreter.
 ---------------
