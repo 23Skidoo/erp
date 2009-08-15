@@ -17,18 +17,71 @@ parse = undefined
 
 -- Typechecker.
 ---------------
+-- Types.
 -- TODO: tuples, sets
-data SimpleType = STBool | STInt | STString | STFun SimpleType SimpleType | STBase String
+data SimpleType = STBool | STInt | STStr
+                | STFun SimpleType SimpleType | STBase String
                   deriving (Eq, Show)
 
 data TypeScheme = TSVar SimpleType | TSForAll String TypeScheme
+                  deriving (Eq, Show)
 
 data Type = TSimple SimpleType | TScheme TypeScheme
+            deriving (Eq, Show)
 
+showSimpleType :: SimpleType -> String
+showSimpleType STBool = "bool"
+showSimpleType STInt = "int"
+showSimpleType STStr = "string"
+showSimpleType (STFun a b) = showSimpleType a ++ " -> " ++ showSimpleType b
+showSimpleType (STBase s) = s
+
+showTypeScheme :: TypeScheme -> String
+showTypeScheme (TSVar st) = showSimpleType st
+showTypeScheme (TSForAll s ts) = "A" ++ s ++ "." ++ showTypeScheme ts
+
+showType :: Type -> String
+showType (TSimple st) = showSimpleType st
+showType (TScheme ts) = showTypeScheme ts
+
+-- Internals.
+type Constraint = (Type, Type)
+
+type ConstraintSet = [Constraint]
+
+type TypingContext = M.Map String SimpleType
+
+emptyTypingContext :: TypingContext
+emptyTypingContext = M.empty
+
+type Sym = String
+type SymGen = () -> NextSym
+data NextSym = NextSym (Sym, SymGen)
+
+gensym :: SymGen
+gensym = let f x u = NextSym ("x_" ++ show x, f (x+1))
+         in f 0
+
+typecheck' :: AST -> TypingContext -> TypecheckResult
+typecheck' (ABool _) _      = Right (TSimple STBool)
+typecheck' (AInt _) _       = Right (TSimple STInt)
+typecheck' (AStr _) _       = Right (TSimple STStr)
+typecheck' (AVar n) ctx     =
+    case M.lookup n ctx of
+      Just t -> Right (TSimple t)
+      Nothing -> Left ("Unknown variable '" ++ n ++ "'!")
+
+typecheck' (AAbs (AVar v) b) ctx   = case typecheck' b (M.insert v (STBase "x") ctx)
+                                     of Right (TSimple t) -> Right (TSimple (STFun (STBase "x") t))
+                                        l -> l
+typecheck' (AApp e1 e2) ctx = undefined
+typecheck' _ _ = Left "Can't typecheck!"
+
+-- Client interface.
 type TypecheckResult = Either String Type
 
 typecheck :: AST -> TypecheckResult
-typecheck = undefined
+typecheck ast = typecheck' ast emptyTypingContext
 
 -- Interpreter.
 ---------------
