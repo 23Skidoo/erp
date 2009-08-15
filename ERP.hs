@@ -1,4 +1,4 @@
-module Erp
+module ERP
    where
 
 import Data.Maybe
