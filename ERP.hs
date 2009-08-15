@@ -1,6 +1,7 @@
 module ERP
    where
 
+import Control.Monad.Error
 import Data.Maybe
 import Data.Map as M
 
@@ -8,6 +9,7 @@ import Data.Map as M
 ----------
 data AST = ABool Bool | AInt Integer | AStr String
          | AVar String | AAbs AST AST | AApp AST AST
+         | APlus AST AST
            deriving (Eq, Show)
 
 type ParseResult = Either String AST
@@ -97,6 +99,9 @@ interpret e = interpret' e emptyEnvironment
 emptyEnvironment :: Environment
 emptyEnvironment = M.empty
 
+toVInt (VInt i) = Right i
+toVInt _        = Left "The value is not an integer!"
+
 interpret' :: AST -> Environment -> EvalResult
 interpret' (ABool b) _  = Right (VBool b)
 interpret' (AStr s) _   = Right (VStr s)
@@ -107,6 +112,10 @@ interpret' (AVar n) env =
        Nothing -> Left ("Variable '"
                         ++ n ++
                         "' not found in the environment!")
+interpret' (APlus e1 e2) env =
+    do i1 <- toVInt =<< interpret' e1 env
+       i2 <- toVInt =<< interpret' e2 env
+       return (VInt (i1 + i2))
 interpret' (AAbs v b) _ =
     case v of
       AVar x -> Right (VAbs x b)
@@ -140,3 +149,6 @@ lambda v a = AAbs v a
 
 app :: AST -> AST -> AST
 app f e = AApp f e
+
+plus :: AST -> AST -> AST
+plus e1 e2 = APlus e1 e2
