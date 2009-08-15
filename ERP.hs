@@ -60,30 +60,72 @@ type Sym = String
 type SymGen = () -> NextSym
 data NextSym = NextSym (Sym, SymGen)
 
-gensym :: SymGen
-gensym = let f x u = NextSym ("x_" ++ show x, f (x+1))
+symgen :: SymGen
+symgen = let f x () = NextSym ("x_" ++ show x, f (x+1))
          in f 0
 
-typecheck' :: AST -> TypingContext -> TypecheckResult
-typecheck' (ABool _) _      = Right (TSimple STBool)
-typecheck' (AInt _) _       = Right (TSimple STInt)
-typecheck' (AStr _) _       = Right (TSimple STStr)
-typecheck' (AVar n) ctx     =
-    case M.lookup n ctx of
-      Just t -> Right (TSimple t)
+data TypingInfo = TypingInfo {
+      ctx:: TypingContext,
+      gens:: SymGen, constrs:: ConstraintSet }
+
+emptyTypingInfo :: TypingInfo
+emptyTypingInfo = TypingInfo { ctx = emptyTypingContext,
+                               gens = symgen, constrs = []}
+
+gensym :: TypingInfo -> (Sym, TypingInfo)
+gensym ti = let NextSym (sym, ngens) = gens ti ()
+            in (sym, ti { gens = ngens })
+
+lookupCtx :: String -> TypingInfo -> Maybe SimpleType
+lookupCtx n ti = M.lookup n (ctx ti)
+
+insertCtx :: String -> SimpleType -> TypingInfo -> TypingInfo
+insertCtx k v ti = ti { ctx = M.insert k v (ctx ti) }
+
+insertConstr :: Constraint -> TypingInfo -> TypingInfo
+insertConstr c ti = let oldconstrs = constrs ti
+                    in ti { constrs = (c:oldconstrs) }
+
+insertConstrs :: [Constraint] -> TypingInfo -> TypingInfo
+insertConstrs cs ti = let oldconstrs = constrs ti
+                      in ti { constrs = (cs ++ oldconstrs) }
+
+simpleType :: (SimpleType, TypingInfo) -> Either a (Type, TypingInfo)
+simpleType (t, ti) = Right (TSimple t, ti)
+
+type TypecheckResult = Either String (Type, TypingInfo)
+
+typecheck' :: AST -> TypingInfo -> TypecheckResult
+typecheck' (ABool _) ti = simpleType (STBool , ti)
+typecheck' (AInt  _) ti = simpleType (STInt  , ti)
+typecheck' (AStr  _) ti = simpleType (STStr  , ti)
+typecheck' (AVar n) ti =
+    case lookupCtx n ti of
+      Just t -> Right ((TSimple t), ti)
       Nothing -> Left ("Unknown variable '" ++ n ++ "'!")
 
-typecheck' (AAbs (AVar v) b) ctx   = case typecheck' b (M.insert v (STBase "x") ctx)
-                                     of Right (TSimple t) -> Right (TSimple (STFun (STBase "x") t))
-                                        l -> l
-typecheck' (AApp e1 e2) ctx = undefined
-typecheck' _ _ = Left "Can't typecheck!"
+typecheck' (AAbs (AVar v) b) ti =
+    case typecheck' b (insertCtx v (STBase sym) nti)
+    of Right ((TSimple t), _) -> Right (TSimple (STFun (STBase sym) t), nti)
+       l -> l
+    where
+      (sym, nti) = gensym ti
+
+typecheck' (APlus e1 e2) ti =
+    do (t1, _) <- typecheck' e1 ti
+       (t2, _) <- typecheck' e2 ti
+       let newti = insertConstrs [(t1, TSimple STInt),
+                                  (t2, TSimple STInt)] ti
+       return (TSimple STInt, newti)
+typecheck' (AApp _ _) _  = undefined
+typecheck' _ _           = Left "Can't typecheck!"
 
 -- Client interface.
-type TypecheckResult = Either String Type
 
-typecheck :: AST -> TypecheckResult
-typecheck ast = typecheck' ast emptyTypingContext
+typecheck :: AST -> String
+typecheck ast = case typecheck' ast emptyTypingInfo
+                of Left l -> error l
+                   Right (t, _) -> showType t
 
 -- Interpreter.
 ---------------
@@ -99,6 +141,7 @@ interpret e = interpret' e emptyEnvironment
 emptyEnvironment :: Environment
 emptyEnvironment = M.empty
 
+toVInt :: Value -> Either String Integer
 toVInt (VInt i) = Right i
 toVInt _        = Left "The value is not an integer!"
 
@@ -113,9 +156,11 @@ interpret' (AVar n) env =
                         ++ n ++
                         "' not found in the environment!")
 interpret' (APlus e1 e2) env =
-    do i1 <- toVInt =<< interpret' e1 env
-       i2 <- toVInt =<< interpret' e2 env
+    do i1 <- getInt e1
+       i2 <- getInt e2
        return (VInt (i1 + i2))
+    where
+      getInt e = toVInt =<< interpret' e env
 interpret' (AAbs v b) _ =
     case v of
       AVar x -> Right (VAbs x b)
