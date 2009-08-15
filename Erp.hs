@@ -6,7 +6,8 @@ import Data.Map as M
 
 -- Parser.
 ----------
-data AST = AStr String | AInt Integer | AVar String | AAbs AST AST | AApp AST AST
+data AST = ABool Bool | AInt Integer | AStr String
+         | AVar String | AAbs AST AST | AApp AST AST
            deriving (Eq, Show)
 
 type ParseResult = Either String AST
@@ -16,17 +17,22 @@ parse = undefined
 
 -- Typechecker.
 ---------------
-data Type = TString | TInt | TFun Type Type
-            deriving (Eq, Show)
+-- TODO: tuples, sets
+data SimpleType = STBool | STInt | STString | STFun SimpleType SimpleType | STBase String
+                  deriving (Eq, Show)
+
+data TypeScheme = TSVar SimpleType | TSForAll String TypeScheme
+
+data Type = TSimple SimpleType | TScheme TypeScheme
 
 type TypecheckResult = Either String Type
 
-typecheck :: AST -> Either String Type
+typecheck :: AST -> TypecheckResult
 typecheck = undefined
 
 -- Interpreter.
 ---------------
-data Value = VStr String | VInt Integer | VAbs String AST
+data Value = VBool Bool | VInt Integer | VStr String | VAbs String AST
              deriving (Eq, Show)
 
 type Environment = M.Map String Value
@@ -38,10 +44,10 @@ interpret e = interpret' e emptyEnvironment
 emptyEnvironment :: Environment
 emptyEnvironment = M.empty
 
--- (lambda (var "x") (var "x")) (int 2)
 interpret' :: AST -> Environment -> EvalResult
-interpret' (AStr s) _ = Right (VStr s)
-interpret' (AInt i) _ = Right (VInt i)
+interpret' (ABool b) _  = Right (VBool b)
+interpret' (AStr s) _   = Right (VStr s)
+interpret' (AInt i) _   = Right (VInt i)
 interpret' (AVar n) env =
     case M.lookup n env
     of Just v  -> Right v
@@ -63,6 +69,9 @@ interpret' (AApp f e) env =
 
 
 -- "Syntax sugar".
+
+bool :: Bool -> AST
+bool b = ABool b
 
 str :: String -> AST
 str s = AStr s
