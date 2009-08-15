@@ -47,7 +47,7 @@ showType (TSimple st) = showSimpleType st
 showType (TScheme ts) = showTypeScheme ts
 
 -- Internals.
-type Constraint = (Type, Type)
+type Constraint = (SimpleType, SimpleType)
 
 type ConstraintSet = [Constraint]
 
@@ -112,11 +112,17 @@ typecheck' (AAbs (AVar v) b) ti =
       (sym, nti) = gensym ti
 
 typecheck' (APlus e1 e2) ti =
-    do (t1, _) <- typecheck' e1 ti
-       (t2, _) <- typecheck' e2 ti
-       let newti = insertConstrs [(t1, TSimple STInt),
-                                  (t2, TSimple STInt)] ti
+    do t1 <- getSimpleType e1
+       t2 <- getSimpleType e2
+       let newti = insertConstrs [(t1, STInt),
+                                  (t2, STInt)] ti
        return (TSimple STInt, newti)
+    where
+      getSimpleType e = typecheck' e ti >>= getSimpleType'
+
+      getSimpleType' (TSimple t, _) = Right t
+      getSimpleType' _ = Left "Operand of plus is not a simple type!"
+
 typecheck' (AApp _ _) _  = undefined
 typecheck' _ _           = Left "Can't typecheck!"
 
