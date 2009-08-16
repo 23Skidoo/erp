@@ -58,3 +58,11 @@ testInference4 = (plus (str "abc") (int 2))
 -- int -> int -> int.
 testInference5 :: AST
 testInference5 = (lambda (var "y") (lambda (var "x") (plus (var "y") (var "x"))))
+
+-- x -> string.
+testInference6 :: AST
+testInference6 = (lambda (var "x") (str "abc"))
+
+-- x -> y -> string.
+testInference7 :: AST
+testInference7 = (lambda (var "y") (lambda (var "x") (str "abc")))
