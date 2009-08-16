@@ -47,10 +47,14 @@ testInference1 = (app (lambda (var "x") (var "x")) (int 1))
 testInference2 :: AST
 testInference2 = (lambda (var "x") (var "x"))
 
--- int -> int
+-- int -> int.
 testInference3 :: AST
 testInference3 = (lambda (var "x") (plus (var "x") (var "x")))
 
--- xfail
+-- xfail.
 testInference4 :: AST
 testInference4 = (plus (str "abc") (int 2))
+
+-- int -> int -> int.
+testInference5 :: AST
+testInference5 = (lambda (var "y") (lambda (var "x") (plus (var "y") (var "x"))))
