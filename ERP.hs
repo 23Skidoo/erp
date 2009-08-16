@@ -66,8 +66,8 @@ substituteTypeVariableWithType (STBase n) nt old = doSubstitute old
       doSubstitute (STFun ta tb) = (STFun (doSubstitute ta) (doSubstitute tb))
       doSubstitute x = x
 substituteTypeVariableWithType _ _ _ =
-    error ("The first argument to " ++
-              "'substituteVariableWithType' should be a type variable!")
+    error ("The first argument to 'substituteVariableWithType' " ++
+           "should be a type variable!")
 
 applySubstitution :: Substitution -> SimpleType -> SimpleType
 applySubstitution ss t = foldl' (\ot (v, nt) ->
@@ -87,7 +87,8 @@ occursIn (STBase n) tT = o tT
       o (STBase n1) = n1 == n
       o (STFun a b) = o a || o b
       o _ = False
-occursIn _ _ = error "The first argument to occursIn should be a type variable!"
+occursIn _ _ = error ("The first argument to 'occursIn' " ++
+                      "should be a type variable!")
 
 notOccursIn :: SimpleType -> SimpleType -> Bool
 notOccursIn x t = not . occursIn x $ t
@@ -157,10 +158,26 @@ insertConstrs :: [Constraint] -> TypingInfo -> TypingInfo
 insertConstrs cs ti = let oldconstrs = constrs ti
                       in ti { constrs = (cs ++ oldconstrs) }
 
+unifyConstrs :: TypingInfo -> TypingInfo
+unifyConstrs ti = ti { constrs = unifiedConstrs }
+    where
+      unifiedConstrs = unify . constrs $ ti
+
+inferType :: TypingInfo -> SimpleType -> Type
+inferType ti t = TSimple (applySubstitution (constrs ti) t)
+
 type TypecheckResult = Either String (Type, TypingInfo)
+type SimpleTypecheckResult = Either String (SimpleType, TypingInfo)
 
 simpleType :: (SimpleType, TypingInfo) -> Either a (Type, TypingInfo)
 simpleType (t, ti) = Right (TSimple t, ti)
+
+getSimpleType :: AST -> TypingInfo -> TypingContext -> SimpleTypecheckResult
+getSimpleType e ti ctx = typecheck' e ti ctx >>= getSimpleType'
+    where
+      getSimpleType' (TSimple t, ti') = return (t, ti')
+      getSimpleType' _ = fail "One of plus's operands is not a simple type"
+
 
 typecheck' :: AST -> TypingInfo -> TypingContext -> TypecheckResult
 typecheck' (ABool _) ti _ = simpleType (STBool , ti)
@@ -174,10 +191,11 @@ typecheck' (AVar n) ti ctx =
 
 typecheck' (AAbs (AVar v) b) ti ctx =
     case typecheck' b nti (insertCtx v varType ctx)
-    of Right ((TSimple t), nti2) -> Right (TSimple funType, nti2)
+    of Right ((TSimple t), nti2) -> Right (newFunType, nti3)
            where
              funType = (STFun varType t)
-             --newFunType = applySubstitution (constrs nti2) funType
+             nti3 = unifyConstrs nti2
+             newFunType = inferType nti3 funType
        l -> l
     where
       (sym, nti) = gensym ti
@@ -188,14 +206,18 @@ typecheck' (APlus e1 e2) ti ctx =
        (t2, ti2) <- getSimpleType e2 ti1 ctx
        let newti = insertConstrs [(t1, STInt),
                                   (t2, STInt)] ti2
-       return (TSimple STInt, newti)
-    where
-      getSimpleType e ti' ctx' = typecheck' e ti' ctx' >>= getSimpleType'
+       let newti2 = unifyConstrs newti
+       return ((TSimple STInt), newti2)
 
-      getSimpleType' (TSimple t, ti') = return (t, ti')
-      getSimpleType' _ = fail "One of plus's operands is not a simple type"
-
-typecheck' (AApp _ _) _ _  = undefined
+typecheck' (AApp f a) ti ctx  =
+    do (tf, ti1) <- getSimpleType f ti ctx
+       (ta, ti2) <- getSimpleType a ti1 ctx
+       let (sym, ti3) = gensym ti2
+       let retType = STBase sym
+       let newConstr = (tf, STFun ta retType)
+       let ti4 = insertConstr newConstr ti3
+       let ti5 = unifyConstrs ti4
+       return (inferType ti5 retType, ti5)
 typecheck' _ _ _           = Left "Can't typecheck!"
 
 -- Client interface.
@@ -204,7 +226,8 @@ typecheck :: AST -> String
 typecheck ast =
     case typecheck' ast emptyTypingInfo emptyTypingContext
     of Left l -> error l
-       Right (t, _) -> showType t
+       -- Laziness can be so much fun sometimes...
+       Right (t, ti) -> constrs ti `seq` showType t
 
 -- Interpreter.
 ---------------
