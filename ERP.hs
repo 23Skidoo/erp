@@ -1,9 +1,11 @@
 module ERP
    where
 
+import Control.Arrow ((***))
 import Control.Monad.Error
+import Data.List (foldl')
 import Data.Maybe
-import Data.Map as M
+import qualified Data.Map as M
 
 -- Parser.
 ----------
@@ -54,13 +56,65 @@ type ConstraintSet = [Constraint]
 type Substitution = ConstraintSet
 
 mergeSubstitutions :: Substitution -> Substitution -> Substitution
-mergeSubstitutions = undefined
+mergeSubstitutions s1 s2 = s1 ++ s2
+
+substituteTypeVariableWithType :: (SimpleType -> SimpleType
+                                   -> SimpleType -> SimpleType)
+substituteTypeVariableWithType (STBase n) nt old = doSubstitute old
+    where
+      doSubstitute (STBase s) | (s == n) = nt
+      doSubstitute (STFun ta tb) = (STFun (doSubstitute ta) (doSubstitute tb))
+      doSubstitute x = x
+substituteTypeVariableWithType _ _ _ =
+    error ("The first argument to " ++
+              "'substituteVariableWithType' should be a type variable!")
+
+applySubstitution :: Substitution -> SimpleType -> SimpleType
+applySubstitution ss t = foldl' (\ot (v, nt) ->
+                                     substituteTypeVariableWithType v nt ot)
+                         t (reverse ss)
+
+substituteInConstraintSet :: (SimpleType -> SimpleType ->
+                              ConstraintSet -> ConstraintSet)
+substituteInConstraintSet tv nt = map (\c -> subst' c)
+    where
+      subst'' = substituteTypeVariableWithType tv nt
+      subst' = subst'' *** subst''
+
+occursIn :: SimpleType -> SimpleType -> Bool
+occursIn (STBase n) tT = o tT
+    where
+      o (STBase n1) = n1 == n
+      o (STFun a b) = o a || o b
+      o _ = False
+occursIn _ _ = error "The first argument to occursIn should be a type variable!"
+
+notOccursIn :: SimpleType -> SimpleType -> Bool
+notOccursIn x t = not . occursIn x $ t
+
+recUnify:: SimpleType -> SimpleType -> ConstraintSet -> ConstraintSet
+recUnify s t = unify . substituteInConstraintSet s t
 
 unify :: ConstraintSet -> Substitution
-unify = undefined
+unify [] = []
+unify ((s,t):cs) | s == t = unify cs
 
-applySubstitution :: Substitution -> Type -> Type
-applySubstitution = undefined
+unify ((s@(STBase _), t):cs) | s `notOccursIn` t = ncs
+                             where
+                               ncs' = recUnify s t cs
+                               ncs  = ncs' ++ [(s, t)]
+
+unify ((s, t@(STBase _)):cs) | t `notOccursIn` s = ncs
+                             where
+                               ncs' = recUnify t s cs
+                               ncs  = ncs' ++ [(t, s)]
+
+unify ((STFun s1 s2, STFun t1 t2):cs) = unify ncs
+    where
+      ncs = cs ++ [(s1, t1), (s2, t2)]
+
+unify ((_, _):_) = error "Unsolvable constraints"
+
 
 -- Typing context.
 type TypingContext = M.Map String SimpleType
