@@ -12,6 +12,7 @@ import qualified Data.Map as M
 data AST = ABool Bool | AInt Integer | AStr String
          | AVar String | AAbs AST AST | AApp AST AST
          | ATuple [AST] | AList [AST]
+         | ALet [(String, AST)] AST
          | APlus AST AST | AAppend AST AST | AIntToString AST
            deriving (Eq, Show, Ord)
 
@@ -367,6 +368,13 @@ interpret' env (AIntToString e1) =
     where
       getInt e = fromVInt =<< interpret' env e
 
+interpret' env (ALet [] body) = interpret' env body
+
+interpret' env (ALet ((name, val):xs) body) =
+    do valEval <- interpret' env val
+       let newEnv = (M.insert name valEval env)
+       interpret' newEnv (ALet xs body)
+
 interpret' _ (AAbs v b) =
     case v of
       AVar x -> Right (VAbs x b)
@@ -418,3 +426,6 @@ list e = AList e
 
 tuple :: [AST] -> AST
 tuple e = ATuple e
+
+let_ :: [(String, AST)] -> AST -> AST
+let_ bindings body = ALet bindings body

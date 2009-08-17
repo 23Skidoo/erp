@@ -105,3 +105,6 @@ testEvaluation4 = (list [(int 1), (int 2), (str "abc")])
 testEvaluation5 :: AST
 testEvaluation5 = (append (str "answer: ")
                    (intToString (plus (int 35) (int 7))))
+
+testEvaluation6 :: AST
+testEvaluation6 = (let_ [("f", (lambda (var "x") (var "x")))] (app (var "f") (int 1)))
