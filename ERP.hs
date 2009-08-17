@@ -9,10 +9,12 @@ import qualified Data.Map as M
 
 -- Parser.
 ----------
+type Binding = (String, AST)
+
 data AST = ABool Bool | AInt Integer | AStr String
          | AVar String | AAbs AST AST | AApp AST AST
          | ATuple [AST] | AList [AST]
-         | ALet [(String, AST)] AST
+         | ALet [Binding] AST
          | APlus AST AST | AAppend AST AST | AIntToString AST
            deriving (Eq, Show, Ord)
 
@@ -132,16 +134,22 @@ unify ((_, _):_) = error "Unsolvable constraints"
 
 
 -- Typing context.
-type TypingContext = M.Map String SimpleType
+type TypingContext = M.Map String Type
 
 emptyTypingContext :: TypingContext
 emptyTypingContext = M.empty
 
-lookupCtx :: String -> TypingContext -> Maybe SimpleType
-lookupCtx n ctx = M.lookup n ctx
+lookupCtxST :: String -> TypingContext -> Maybe SimpleType
+lookupCtxST n ctx = M.lookup n ctx >>= extractSimpleType
 
-insertCtx :: String -> SimpleType -> TypingContext -> TypingContext
-insertCtx k v ctx = M.insert k v ctx
+lookupCtxTS :: String -> TypingContext -> Maybe TypeScheme
+lookupCtxTS n ctx = M.lookup n ctx >>= extractTypeScheme
+
+insertCtxST :: String -> SimpleType -> TypingContext -> TypingContext
+insertCtxST k v ctx = M.insert k (TSimple v) ctx
+
+insertCtxTS :: String -> TypeScheme -> TypingContext -> TypingContext
+insertCtxTS k v ctx = M.insert k (TScheme v) ctx
 
 -- Symbol generator.
 type Sym = String
@@ -164,6 +172,11 @@ gensym :: TypingInfo -> (Sym, TypingInfo)
 gensym ti = let NextSym (sym, ngens) = gens ti ()
             in (sym, ti { gens = ngens })
 
+newTypeVariable :: TypingInfo -> (SimpleType, TypingInfo)
+newTypeVariable ti = (STBase sym, nti)
+    where
+      (sym, nti) = gensym ti
+
 insertConstr :: Constraint -> TypingInfo -> TypingInfo
 insertConstr c ti = let oldconstrs = constrs ti
                     in ti { constrs = (c:oldconstrs) }
@@ -180,11 +193,10 @@ unifyConstrs ti = ti { constrs = unifiedConstrs }
 inferType :: TypingInfo -> SimpleType -> Type
 inferType ti t = TSimple (applySubstitution (constrs ti) t)
 
-type TypecheckResult = Either String (Type, TypingInfo)
-type SimpleTypecheckResult = Either String (SimpleType, TypingInfo)
-
 simpleType :: (SimpleType, TypingInfo) -> Either a (Type, TypingInfo)
 simpleType (t, ti) = Right (TSimple t, ti)
+
+type SimpleTypecheckResult = Either String (SimpleType, TypingInfo)
 
 getSimpleType :: AST -> TypingInfo -> TypingContext -> SimpleTypecheckResult
 getSimpleType e ti ctx = do (t, nti) <- typecheck' e ti ctx
@@ -193,7 +205,13 @@ getSimpleType e ti ctx = do (t, nti) <- typecheck' e ti ctx
 
 extractSimpleType :: (Monad m) => Type -> m SimpleType
 extractSimpleType (TSimple t) = return t
-extractSimpleType _           = fail "One of plus's operands is not a simple type"
+extractSimpleType t           = fail ("The type " ++ (show t) ++
+                                      "is not a simple type")
+
+extractTypeScheme :: (Monad m) => Type -> m TypeScheme
+extractTypeScheme (TScheme t) = return t
+extractTypeScheme t           = fail ("The type " ++ (show t) ++
+                                      "is not a type scheme")
 
 type SimpleTypecheckListResult = Either String ([SimpleType], TypingInfo)
 
@@ -205,10 +223,9 @@ getSimpleTypes (x:xs) ti ctx =
        (ts, nti2) <- getSimpleTypes xs nti ctx
        return (t1:ts, nti2)
 
-newTypeVariable :: TypingInfo -> (SimpleType, TypingInfo)
-newTypeVariable ti = (STBase sym, nti)
-    where
-      (sym, nti) = gensym ti
+type TypecheckResult = Either String (Type, TypingInfo)
+type BindingTypes = [(String, Type)]
+type InferTypesOfBindingsResult = Either String (TypingInfo, BindingTypes)
 
 typecheck' :: AST -> TypingInfo -> TypingContext -> TypecheckResult
 typecheck' (ABool _) ti _ = simpleType (STBool , ti)
@@ -237,12 +254,12 @@ typecheck' (ATuple els) ti ctx =
        simpleType (STTuple simpleEls, nti)
 
 typecheck' (AVar n) ti ctx =
-    case lookupCtx n ctx of
+    case lookupCtxST n ctx of
       Just t -> Right ((TSimple t), ti)
       Nothing -> Left ("Unknown variable '" ++ n ++ "'!")
 
 typecheck' (AAbs (AVar v) b) ti ctx =
-    case typecheck' b nti (insertCtx v varType ctx)
+    case typecheck' b nti (insertCtxST v varType ctx)
     of Right ((TSimple t), nti2) -> Right (newFunType, nti3)
            where
              funType = (STFun varType t)
@@ -252,6 +269,49 @@ typecheck' (AAbs (AVar v) b) ti ctx =
     where
       (varType, nti) = newTypeVariable ti
 
+typecheck' (AApp f a) ti ctx  =
+    do (tf, ti1) <- getSimpleType f ti ctx
+       (ta, ti2) <- getSimpleType a ti1 ctx
+       let (retType, ti3) = newTypeVariable ti2
+       let newConstr = (tf, STFun ta retType)
+       let ti4 = insertConstr newConstr ti3
+       let ti5 = unifyConstrs ti4
+       return (inferType ti5 retType, ti5)
+
+typecheck' (ALet [] body) ti ctx = typecheck' body ti ctx
+
+typecheck' (ALet bindings body) ti ctx  =
+    do check_bindings bindings
+       (nti, binding_types) <- inferTypesOfBindings bindings ti
+       let newctx = foldl' (\m e -> uncurry M.insert e m) ctx binding_types
+       typecheck' body nti newctx
+    where
+
+      inferTypesOfBindings :: [Binding] ->
+                              TypingInfo -> InferTypesOfBindingsResult
+      inferTypesOfBindings [] ti' = Right (ti', [])
+      inferTypesOfBindings ((n, v):xs) ti' =
+          do (t, nti) <- typecheck' v ti' ctx
+             -- generalize t
+             (nti2, rest) <- inferTypesOfBindings xs nti
+             return (nti2, (n, t):rest)
+
+      -- Check that there are no identically-named bindings.
+      check_bindings :: (Monad m) => [Binding] -> m Bool
+      check_bindings [] = return True
+      check_bindings ((n, _):bs) =
+          if hasEqual n bs
+          then fail "Conflicting definitions in let-expression!"
+          else return True
+
+      -- Helper function for check_bindings.
+      hasEqual :: String -> [Binding] -> Bool
+      hasEqual _ []                       = False
+      hasEqual n ((n1, _):bs) | n == n1   = True
+                              | otherwise = hasEqual n bs
+
+
+-- TODO: replace by 'builtin'.
 typecheck' (APlus e1 e2) ti ctx =
     do (t1, ti1) <- getSimpleType e1 ti ctx
        (t2, ti2) <- getSimpleType e2 ti1 ctx
@@ -274,14 +334,6 @@ typecheck' (AIntToString e1) ti ctx =
        let newti2 = unifyConstrs newti
        return ((TSimple STStr), newti2)
 
-typecheck' (AApp f a) ti ctx  =
-    do (tf, ti1) <- getSimpleType f ti ctx
-       (ta, ti2) <- getSimpleType a ti1 ctx
-       let (retType, ti3) = newTypeVariable ti2
-       let newConstr = (tf, STFun ta retType)
-       let ti4 = insertConstr newConstr ti3
-       let ti5 = unifyConstrs ti4
-       return (inferType ti5 retType, ti5)
 typecheck' _ _ _           = Left "Can't typecheck!"
 
 -- Client interface.
@@ -391,6 +443,9 @@ interpret' env (AApp f e) =
 -- Client interface.
 interpret :: AST -> EvalResult
 interpret e = interpret' emptyEnvironment e
+
+evaluate :: AST -> EvalResult
+evaluate = interpret
 
 -- "Syntax sugar".
 
