@@ -11,8 +11,9 @@ import qualified Data.Map as M
 ----------
 data AST = ABool Bool | AInt Integer | AStr String
          | AVar String | AAbs AST AST | AApp AST AST
+         | ATuple [AST] | AList [AST]
          | APlus AST AST
-           deriving (Eq, Show)
+           deriving (Eq, Show, Ord)
 
 type ParseResult = Either String AST
 
@@ -23,6 +24,7 @@ parse = undefined
 ---------------
 -- Types.
 data SimpleType = STBool | STInt | STStr
+--                | STList SimpleType | STTuple [SimpleType]
                 | STFun SimpleType SimpleType | STBase String
                   deriving (Eq, Show)
 
@@ -232,13 +234,26 @@ typecheck ast =
 -- Interpreter.
 ---------------
 data Value = VBool Bool | VInt Integer | VStr String | VAbs String AST
-             deriving (Eq, Show)
+           | VList [Value] | VTuple [Value]
+             deriving (Eq, Show, Ord)
+
+-- Are runtime 'types' of these values equal?
+isEqualV :: Value -> Value -> Bool
+isEqualV (VBool _) (VBool _)         = True
+isEqualV (VInt _) (VInt _)           = True
+isEqualV (VStr _) (VStr _)           = True
+isEqualV (VTuple els1) (VTuple els2) = and . zipWith isEqualV els1 $ els2
+isEqualV (VList l1) (VList l2)       = sameType l1 && sameType l2
+    where
+      headType = head l1
+      sameType = and . map (isEqualV headType)
+
+-- We assume that the typecheck worked here.
+isEqualV (VAbs _ _) (VAbs _ _)       = True
+isEqualV _ _                         = False
 
 type Environment = M.Map String Value
 type EvalResult  = Either String Value
-
-interpret :: AST -> EvalResult
-interpret e = interpret' e emptyEnvironment
 
 emptyEnvironment :: Environment
 emptyEnvironment = M.empty
@@ -247,35 +262,48 @@ fromVInt :: Value -> Either String Integer
 fromVInt (VInt i) = Right i
 fromVInt _        = Left "The value is not an integer!"
 
-interpret' :: AST -> Environment -> EvalResult
-interpret' (ABool b) _  = Right (VBool b)
-interpret' (AStr s) _   = Right (VStr s)
-interpret' (AInt i) _   = Right (VInt i)
-interpret' (AVar n) env =
+interpret' :: Environment -> AST -> EvalResult
+interpret' _ (ABool b)  = Right (VBool b)
+interpret' _ (AStr s)   = Right (VStr s)
+interpret' _ (AInt i)   = Right (VInt i)
+interpret' env (AVar n) =
     case M.lookup n env
     of Just v  -> Right v
        Nothing -> Left ("Variable '"
                         ++ n ++
                         "' not found in the environment!")
-interpret' (APlus e1 e2) env =
+interpret' env (AList els) =
+    do { values <- sequence . map (interpret' env) $ els;
+         let valList = VList values
+         in if isEqualV valList valList
+            then return valList
+            else fail ("Heterogeneous lists are not allowed!") }
+
+interpret' env (ATuple els) = do values <- sequence . map (interpret' env) $ els;
+                                 return . VTuple $ values
+
+interpret' env (APlus e1 e2) =
     do i1 <- getInt e1
        i2 <- getInt e2
        return (VInt (i1 + i2))
     where
-      getInt e = fromVInt =<< interpret' e env
-interpret' (AAbs v b) _ =
+      getInt e = fromVInt =<< interpret' env e
+interpret' _ (AAbs v b) =
     case v of
       AVar x -> Right (VAbs x b)
       _      -> Left "Unknown value in the abstraction parameter list!"
-interpret' (AApp f e) env =
-    case interpret' f env of
+interpret' env (AApp f e) =
+    case interpret' env f of
       Right (VAbs v b) ->
-          case interpret' e env of
-            Right arg  -> interpret' b (M.insert v arg env)
+          case interpret' env e of
+            Right arg  -> interpret' (M.insert v arg env) b
             l@(Left _) -> l
       l@(Left _)       -> l
       _                -> Left "Can't perform application!"
 
+-- Client interface.
+interpret :: AST -> EvalResult
+interpret e = interpret' emptyEnvironment e
 
 -- "Syntax sugar".
 
@@ -299,3 +327,9 @@ app f e = AApp f e
 
 plus :: AST -> AST -> AST
 plus e1 e2 = APlus e1 e2
+
+list :: [AST] -> AST
+list e = AList e
+
+tuple :: [AST] -> AST
+tuple e = ATuple e
