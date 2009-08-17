@@ -82,6 +82,21 @@ testInference8 =  (lambda (var "a")  (lambda (var "z")
 testInference9 :: AST
 testInference9 = (lambda (var "x") (append (var "x") (var "x")))
 
+-- xfail.
+testInference10 :: AST
+testInference10 = (let_ [("f", (int 1)), ("f", (int 2))] (plus (var "f") (var "f")))
+
+-- (string, string)
+testInference11 :: AST
+testInference11 = (let_ [("f", (lambda (var "x") (var "x")))]
+                            (tuple [(app (var "f") (str "abc")),
+                                    (app (var "f") (str "abc"))]))
+
+-- FAIL. Expected value: (string, int).
+testInference12 :: AST
+testInference12 = (let_ [("f", (lambda (var "x") (var "x")))]
+                            (tuple [(app (var "f") (str "abc")),
+                                    (app (var "f") (int 1))]))
 -- Evaluator tests.
 -------------------
 
@@ -106,5 +121,6 @@ testEvaluation5 :: AST
 testEvaluation5 = (append (str "answer: ")
                    (intToString (plus (int 35) (int 7))))
 
+-- 1.
 testEvaluation6 :: AST
 testEvaluation6 = (let_ [("f", (lambda (var "x") (var "x")))] (app (var "f") (int 1)))
