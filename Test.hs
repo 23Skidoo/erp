@@ -66,3 +66,16 @@ testInference6 = (lambda (var "x") (str "abc"))
 -- x -> y -> string.
 testInference7 :: AST
 testInference7 = (lambda (var "y") (lambda (var "x") (str "abc")))
+
+-- x -> y -> z -> a -> int.
+testInference8 :: AST
+testInference8 =  (lambda (var "a")  (lambda (var "z") (lambda (var "y") (lambda (var "x") (int 42)))))
+
+-- string -> string.
+testInference9 :: AST
+testInference9 = (lambda (var "x") (append (var "x") (var "x")))
+
+-- Right (VStr "answer: 42")
+testInterpretation1 :: AST
+testInterpretation1 = (append (str "answer: ") (intToString (plus (int 35) (int 7))))
+
