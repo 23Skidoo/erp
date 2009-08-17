@@ -73,6 +73,15 @@ testInference6 = (lambda (var "x") (str "abc"))
 testInference7 :: AST
 testInference7 = (lambda (var "y") (lambda (var "x") (str "abc")))
 
+-- x -> y -> z -> a -> int.
+testInference8 :: AST
+testInference8 =  (lambda (var "a")  (lambda (var "z")
+                                     (lambda (var "y") (lambda (var "x") (int 42)))))
+
+-- string -> string.
+testInference9 :: AST
+testInference9 = (lambda (var "x") (append (var "x") (var "x")))
+
 -- Evaluator tests.
 -------------------
 
@@ -91,3 +100,8 @@ testEvaluation3 = (list [(int 1), (int 2), (int 3)])
 -- xfail.
 testEvaluation4 :: AST
 testEvaluation4 = (list [(int 1), (int 2), (str "abc")])
+
+-- Right (VStr "answer: 42")
+testEvaluation5 :: AST
+testEvaluation5 = (append (str "answer: ")
+                   (intToString (plus (int 35) (int 7))))

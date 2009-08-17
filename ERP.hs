@@ -12,7 +12,7 @@ import qualified Data.Map as M
 data AST = ABool Bool | AInt Integer | AStr String
          | AVar String | AAbs AST AST | AApp AST AST
          | ATuple [AST] | AList [AST]
-         | APlus AST AST
+         | APlus AST AST | AAppend AST AST | AIntToString AST
            deriving (Eq, Show, Ord)
 
 type ParseResult = Either String AST
@@ -259,6 +259,20 @@ typecheck' (APlus e1 e2) ti ctx =
        let newti2 = unifyConstrs newti
        return ((TSimple STInt), newti2)
 
+typecheck' (AAppend e1 e2) ti ctx =
+    do (t1, ti1) <- getSimpleType e1 ti ctx
+       (t2, ti2) <- getSimpleType e2 ti1 ctx
+       let newti = insertConstrs [(t1, STStr),
+                                  (t2, STStr)] ti2
+       let newti2 = unifyConstrs newti
+       return ((TSimple STStr), newti2)
+
+typecheck' (AIntToString e1) ti ctx =
+    do (t1, ti1) <- getSimpleType e1 ti ctx
+       let newti = insertConstrs [(t1, STInt)] ti1
+       let newti2 = unifyConstrs newti
+       return ((TSimple STStr), newti2)
+
 typecheck' (AApp f a) ti ctx  =
     do (tf, ti1) <- getSimpleType f ti ctx
        (ta, ti2) <- getSimpleType a ti1 ctx
@@ -309,6 +323,10 @@ fromVInt :: Value -> Either String Integer
 fromVInt (VInt i) = Right i
 fromVInt _        = Left "The value is not an integer!"
 
+fromVStr :: Value -> Either String String
+fromVStr (VStr i) = Right i
+fromVStr _        = Left "The value is not an string!"
+
 interpret' :: Environment -> AST -> EvalResult
 interpret' _ (ABool b)  = Right (VBool b)
 interpret' _ (AStr s)   = Right (VStr s)
@@ -335,6 +353,20 @@ interpret' env (APlus e1 e2) =
        return (VInt (i1 + i2))
     where
       getInt e = fromVInt =<< interpret' env e
+
+interpret' env (AAppend e1 e2) =
+    do s1 <- getStr e1
+       s2 <- getStr e2
+       return (VStr (s1 ++ s2))
+    where
+      getStr e = fromVStr =<< interpret' env e
+
+interpret' env (AIntToString e1) =
+    do i1 <- getInt e1
+       return (VStr (show i1))
+    where
+      getInt e = fromVInt =<< interpret' env e
+
 interpret' _ (AAbs v b) =
     case v of
       AVar x -> Right (VAbs x b)
@@ -374,6 +406,12 @@ app f e = AApp f e
 
 plus :: AST -> AST -> AST
 plus e1 e2 = APlus e1 e2
+
+append :: AST -> AST -> AST
+append e1 e2 = AAppend e1 e2
+
+intToString :: AST -> AST
+intToString e1 = AIntToString e1
 
 list :: [AST] -> AST
 list e = AList e
