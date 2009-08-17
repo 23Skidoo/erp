@@ -63,6 +63,13 @@ type ConstraintSet = [Constraint]
 
 type Substitution = ConstraintSet
 
+showConstraint :: Constraint -> String
+showConstraint (t1, t2) = ("(" ++ showSimpleType t1 ++ " = "
+                           ++ showSimpleType t2 ++ ")")
+
+showConstraintSet :: ConstraintSet -> String
+showConstraintSet s = "{" ++ (concat . intersperse ", " . map showConstraint $ s) ++ "}"
+
 mergeSubstitutions :: Substitution -> Substitution -> Substitution
 mergeSubstitutions s1 s2 = s1 ++ s2
 
@@ -101,22 +108,24 @@ occursIn _ _ = error ("The first argument to 'occursIn' " ++
 notOccursIn :: SimpleType -> SimpleType -> Bool
 notOccursIn x t = not . occursIn x $ t
 
-recUnify:: SimpleType -> SimpleType -> ConstraintSet -> ConstraintSet
+type UnifyResult = Either String Substitution
+
+recUnify:: SimpleType -> SimpleType -> ConstraintSet -> UnifyResult
 recUnify s t = unify . substituteInConstraintSet s t
 
-unify :: ConstraintSet -> Substitution
-unify [] = []
+unify :: ConstraintSet -> UnifyResult
+unify [] = return []
 unify ((s,t):cs) | s == t = unify cs
 
-unify ((s@(STBase _), t):cs) | s `notOccursIn` t = ncs
-                             where
-                               ncs' = recUnify s t cs
-                               ncs  = ncs' ++ [(s, t)]
+unify ((s@(STBase _), t):cs)
+    | s `notOccursIn` t = do ncs' <- recUnify s t cs
+                             let ncs = ncs' ++ [(s, t)]
+                             return ncs
 
-unify ((s, t@(STBase _)):cs) | t `notOccursIn` s = ncs
-                             where
-                               ncs' = recUnify t s cs
-                               ncs  = ncs' ++ [(t, s)]
+unify ((s, t@(STBase _)):cs)
+    | t `notOccursIn` s = do ncs' <- recUnify t s cs
+                             let ncs = ncs' ++ [(t, s)]
+                             return ncs
 
 unify ((STFun s1 s2, STFun t1 t2):cs) = unify ncs
     where
@@ -130,7 +139,7 @@ unify ((STTuple els1, STTuple els2):cs) = unify ncs
     where
       ncs = cs ++ (zipWith (,) els1 els2)
 
-unify ((_, _):_) = error "Unsolvable constraints"
+unify ((_, _):_) = fail "Unsolvable constraints"
 
 
 -- Typing context.
@@ -185,10 +194,9 @@ insertConstrs :: [Constraint] -> TypingInfo -> TypingInfo
 insertConstrs cs ti = let oldconstrs = constrs ti
                       in ti { constrs = (cs ++ oldconstrs) }
 
-unifyConstrs :: TypingInfo -> TypingInfo
-unifyConstrs ti = ti { constrs = unifiedConstrs }
-    where
-      unifiedConstrs = unify . constrs $ ti
+unifyConstrs :: TypingInfo -> Either String TypingInfo
+unifyConstrs ti = do unifiedConstrs <- unify . constrs $ ti
+                     return $ ti { constrs = unifiedConstrs }
 
 inferType :: TypingInfo -> SimpleType -> Type
 inferType ti t = TSimple (applySubstitution (constrs ti) t)
@@ -198,16 +206,19 @@ simpleType (t, ti) = Right (TSimple t, ti)
 
 type SimpleTypecheckResult = Either String (SimpleType, TypingInfo)
 
+-- Typecheck the expression, and fail if it doesn't have a simple type.
 getSimpleType :: AST -> TypingInfo -> TypingContext -> SimpleTypecheckResult
 getSimpleType e ti ctx = do (t, nti) <- typecheck' e ti ctx
                             st <- extractSimpleType t
                             return (st, nti)
 
+-- Given a Type, return the underlying SimpleType or fail.
 extractSimpleType :: (Monad m) => Type -> m SimpleType
 extractSimpleType (TSimple t) = return t
 extractSimpleType t           = fail ("The type " ++ (show t) ++
                                       "is not a simple type")
 
+-- Given a Type, return the underlying TypeScheme or fail.
 extractTypeScheme :: (Monad m) => Type -> m TypeScheme
 extractTypeScheme (TScheme t) = return t
 extractTypeScheme t           = fail ("The type " ++ (show t) ++
@@ -215,6 +226,7 @@ extractTypeScheme t           = fail ("The type " ++ (show t) ++
 
 type SimpleTypecheckListResult = Either String ([SimpleType], TypingInfo)
 
+-- Given a list of expressions, typecheck them using getSimpleType.
 getSimpleTypes :: [AST] -> TypingInfo ->
                   TypingContext -> SimpleTypecheckListResult
 getSimpleTypes [] ti _ = Right ([], ti)
@@ -227,6 +239,7 @@ type TypecheckResult = Either String (Type, TypingInfo)
 type BindingTypes = [(String, Type)]
 type InferTypesOfBindingsResult = Either String (TypingInfo, BindingTypes)
 
+-- The main typechecking function.
 typecheck' :: AST -> TypingInfo -> TypingContext -> TypecheckResult
 typecheck' (ABool _) ti _ = simpleType (STBool , ti)
 typecheck' (AInt  _) ti _ = simpleType (STInt  , ti)
@@ -241,7 +254,7 @@ typecheck' (AList els) ti ctx =
        let (newVar, nti2) = newTypeVariable nti
        let listConstrs = zipWith (,) (newVar:simpleEls) simpleEls
        let nti3 = insertConstrs listConstrs nti2
-       let nti4 = unifyConstrs nti3
+       nti4 <- unifyConstrs nti3
        elType <- extractSimpleType . inferType nti4 $ newVar
        simpleType (STList elType , nti4)
 
@@ -259,15 +272,12 @@ typecheck' (AVar n) ti ctx =
       Nothing -> Left ("Unknown variable '" ++ n ++ "'!")
 
 typecheck' (AAbs (AVar v) b) ti ctx =
-    case typecheck' b nti (insertCtxST v varType ctx)
-    of Right ((TSimple t), nti2) -> Right (newFunType, nti3)
-           where
-             funType = (STFun varType t)
-             nti3 = unifyConstrs nti2
-             newFunType = inferType nti3 funType
-       l -> l
-    where
-      (varType, nti) = newTypeVariable ti
+    do let (varType, nti) = newTypeVariable ti
+       (t, nti2) <- getSimpleType b nti (insertCtxST v varType ctx)
+       nti3 <- unifyConstrs nti2
+       let funType = (STFun varType t)
+       let newFunType = inferType nti3 funType
+       Right (newFunType, nti3)
 
 typecheck' (AApp f a) ti ctx  =
     do (tf, ti1) <- getSimpleType f ti ctx
@@ -275,7 +285,7 @@ typecheck' (AApp f a) ti ctx  =
        let (retType, ti3) = newTypeVariable ti2
        let newConstr = (tf, STFun ta retType)
        let ti4 = insertConstr newConstr ti3
-       let ti5 = unifyConstrs ti4
+       ti5 <- unifyConstrs ti4
        return (inferType ti5 retType, ti5)
 
 typecheck' (ALet [] body) ti ctx = typecheck' body ti ctx
@@ -317,29 +327,34 @@ typecheck' (APlus e1 e2) ti ctx =
        (t2, ti2) <- getSimpleType e2 ti1 ctx
        let newti = insertConstrs [(t1, STInt),
                                   (t2, STInt)] ti2
-       let newti2 = unifyConstrs newti
-       return ((TSimple STInt), newti2)
+       newti2 <- unifyConstrs newti
+       simpleType (STInt, newti2)
 
 typecheck' (AAppend e1 e2) ti ctx =
     do (t1, ti1) <- getSimpleType e1 ti ctx
        (t2, ti2) <- getSimpleType e2 ti1 ctx
        let newti = insertConstrs [(t1, STStr),
                                   (t2, STStr)] ti2
-       let newti2 = unifyConstrs newti
-       return ((TSimple STStr), newti2)
+       newti2 <- unifyConstrs newti
+       simpleType (STStr, newti2)
 
 typecheck' (AIntToString e1) ti ctx =
     do (t1, ti1) <- getSimpleType e1 ti ctx
        let newti = insertConstrs [(t1, STInt)] ti1
-       let newti2 = unifyConstrs newti
-       return ((TSimple STStr), newti2)
+       newti2 <- unifyConstrs newti
+       simpleType (STStr, newti2)
 
 typecheck' _ _ _           = Left "Can't typecheck!"
 
 -- Client interface.
 
-typecheck :: AST -> String
+typecheck :: AST -> Either String Type
 typecheck ast =
+    do (t, _) <- typecheck' ast emptyTypingInfo emptyTypingContext
+       return t
+
+typecheck_pretty :: AST -> String
+typecheck_pretty ast =
     case typecheck' ast emptyTypingInfo emptyTypingContext
     of Left l -> error l
        -- Laziness can be so much fun sometimes...
@@ -350,6 +365,17 @@ typecheck ast =
 data Value = VBool Bool | VInt Integer | VStr String | VAbs String AST
            | VList [Value] | VTuple [Value]
              deriving (Eq, Show, Ord)
+
+showValueList :: [Value] -> String
+showValueList = concat . intersperse ", " . map showValue
+
+showValue :: Value -> String
+showValue (VBool b)  = show b
+showValue (VInt i)   = show i
+showValue (VStr s)   = show s
+showValue (VList l)  = "[" ++ showValueList l ++ "]"
+showValue (VTuple l) = "(" ++ showValueList l ++ ")"
+showValue (VAbs v b) = ("(\\" ++ v ++ " -> " ++ show b ++ ")")
 
 -- Are runtime 'types' of these values equal?
 isEqualV :: Value -> Value -> Bool

@@ -1,126 +1,137 @@
-module Test
+module Main
     where
 
+import Data.Either
+import Test.HUnit
+
 import ERP
+
+makeListOfTests :: (Eq a, Show a) => [a] -> [a] -> [Test]
+makeListOfTests = zipWith (~?=)
 
 -- Constraint solver tests.
 ---------------------------
 
--- Y = int -> int ; X = int.
-testConstraints1 :: ConstraintSet
-testConstraints1 = [(STBase "X", STInt),
-                    (STBase "Y", STFun (STBase "X") (STBase "X"))]
+constraintsActual :: [String]
+constraintsActual = map (either id showConstraintSet . unify) allTests
+    where
+      allTests = [constraints0, constraints1, constraints2, constraints3,
+                  constraints4, constraints5, constraints6, constraints7]
 
--- Y = int; X = int.
-testConstraints2 :: ConstraintSet
-testConstraints2 = [(STFun STInt STInt,
-                     STFun (STBase "X") (STBase "Y"))]
+      constraints0 = [(STBase "X", STInt),
+                      (STBase "Y", STFun (STBase "X") (STBase "X"))]
+      constraints1 = [(STFun STInt STInt,
+                       STFun (STBase "X") (STBase "Y"))]
+      constraints2 = [(STInt, STFun (STInt) (STBase "Y"))]
+      constraints3 = [(STBase "Y", STFun STInt (STBase "Y"))]
+      constraints4 = []
+      constraints5 = [(STFun (STBase "x_0") (STBase "x_0"),
+                       STFun (STBase "x_1") STInt)]
+      constraints6 = [(STFun (STBase "x_0") (STBase "x_0"),
+                       STFun STInt (STBase "x_1"))]
+      constraints7 = [(STStr,STInt),(STInt,STInt)]
 
--- xfail
-testConstraints3 :: ConstraintSet
-testConstraints3 = [(STInt, STFun (STInt) (STBase "Y"))]
+constraintsExpected :: [String]
+constraintsExpected =
+    [
+     "{(Y = int -> int), (X = int)}",
+     "{(Y = int), (X = int)}",
+     "Unsolvable constraints",
+     "Unsolvable constraints",
+     "{}",
+     "{(x_1 = int), (x_0 = x_1)}",
+     "{(x_1 = int), (x_0 = int)}",
+     "Unsolvable constraints"
+    ]
 
--- xfail
-testConstraints4 :: ConstraintSet
-testConstraints4 = [(STBase "Y", STFun STInt (STBase "Y"))]
-
--- [].
-testConstraints5 :: ConstraintSet
-testConstraints5 = []
-
--- x_1 -> int; x_0 -> x_1.
-testConstraints6 :: ConstraintSet
-testConstraints6 = [(STFun (STBase "x_0") (STBase "x_0"),
-                     STFun (STBase "x_1") STInt)]
-
--- x_1 -> int; x_0 -> int.
-testConstraints7 :: ConstraintSet
-testConstraints7 = [(STFun (STBase "x_0") (STBase "x_0"),
-                     STFun STInt (STBase "x_1"))]
-
--- xfail.
-testConstraints8 :: ConstraintSet
-testConstraints8 = [(STStr,STInt),(STInt,STInt)]
+constraintsTests :: [Test]
+constraintsTests = makeListOfTests constraintsActual constraintsExpected
 
 -- Type inference tests.
 ------------------------
 
--- int.
-testInference1 :: AST
-testInference1 = (app (lambda (var "x") (var "x")) (int 1))
+inferenceActual :: [String]
+inferenceActual = map (either id showType . typecheck) allTests
+    where
+      allTests = [inference0, inference1, inference2, inference3,
+                  inference4, inference5, inference6, inference7,
+                  inference8, inference9, inference10, inference11]
 
--- x -> x.
-testInference2 :: AST
-testInference2 = (lambda (var "x") (var "x"))
-
--- int -> int.
-testInference3 :: AST
-testInference3 = (lambda (var "x") (plus (var "x") (var "x")))
-
--- xfail.
-testInference4 :: AST
-testInference4 = (plus (str "abc") (int 2))
-
--- int -> int -> int.
-testInference5 :: AST
-testInference5 = (lambda (var "y") (lambda (var "x") (plus (var "y") (var "x"))))
-
--- x -> string.
-testInference6 :: AST
-testInference6 = (lambda (var "x") (str "abc"))
-
--- x -> y -> string.
-testInference7 :: AST
-testInference7 = (lambda (var "y") (lambda (var "x") (str "abc")))
-
--- x -> y -> z -> a -> int.
-testInference8 :: AST
-testInference8 =  (lambda (var "a")  (lambda (var "z")
-                                     (lambda (var "y") (lambda (var "x") (int 42)))))
-
--- string -> string.
-testInference9 :: AST
-testInference9 = (lambda (var "x") (append (var "x") (var "x")))
-
--- xfail.
-testInference10 :: AST
-testInference10 = (let_ [("f", (int 1)), ("f", (int 2))] (plus (var "f") (var "f")))
-
--- (string, string)
-testInference11 :: AST
-testInference11 = (let_ [("f", (lambda (var "x") (var "x")))]
-                            (tuple [(app (var "f") (str "abc")),
-                                    (app (var "f") (str "abc"))]))
-
--- FAIL. Expected value: (string, int).
-testInference12 :: AST
-testInference12 = (let_ [("f", (lambda (var "x") (var "x")))]
+      inference0 = (app (lambda (var "x") (var "x")) (int 1))
+      inference1 = (lambda (var "x") (var "x"))
+      inference2 = (lambda (var "x") (plus (var "x") (var "x")))
+      inference3 = (plus (str "abc") (int 2))
+      inference4 = (lambda (var "y") (lambda (var "x") (plus (var "y") (var "x"))))
+      inference5 = (lambda (var "x") (str "abc"))
+      inference6 = (lambda (var "y") (lambda (var "x") (str "abc")))
+      inference7 =  (lambda (var "a")  (lambda (var "z")
+                                        (lambda (var "y") (lambda (var "x") (int 42)))))
+      inference8 = (lambda (var "x") (append (var "x") (var "x")))
+      inference9 = (let_ [("f", (int 1)), ("f", (int 2))] (plus (var "f") (var "f")))
+      inference10 = (let_ [("f", (lambda (var "x") (var "x")))]
+                     (tuple [(app (var "f") (str "abc")),
+                             (app (var "f") (str "abc"))]))
+      inference11 = (let_ [("f", (lambda (var "x") (var "x")))]
                             (tuple [(app (var "f") (str "abc")),
                                     (app (var "f") (int 1))]))
+
+inferenceExpected :: [String]
+inferenceExpected =
+    [
+     "int",
+     "x_0 -> x_0",
+     "int -> int",
+     "Unsolvable constraints",
+     "int -> int -> int",
+     "x_0 -> string",
+     "x_0 -> x_1 -> string",
+     "x_0 -> x_1 -> x_2 -> x_3 -> int",
+     "string -> string",
+     "Conflicting definitions in let-expression!",
+     "(string, string)",
+
+     -- TOFIX: this must be (string, int) after let-polymorphism is in.
+     "Unsolvable constraints"
+    ]
+
+inferenceTests :: [Test]
+inferenceTests = makeListOfTests inferenceActual inferenceExpected
+
 -- Evaluator tests.
 -------------------
 
--- (6, "abc").
-testEvaluation1 :: AST
-testEvaluation1 = (tuple [(int 6), (str "abc")])
+evaluationActual :: [String]
+evaluationActual = map (either id showValue . evaluate) allTests
+    where
+      allTests = [eval1, eval2, eval3, eval4, eval5, eval6]
 
--- xfail.
-testEvaluation2 :: AST
-testEvaluation2 = (tuple [(lambda (var "x") (var "x")), (str "abc")])
+      eval1 = (tuple [(int 6), (str "abc")])
+      eval2 = (tuple [(lambda (var "x") (var "x")), (str "abc")])
+      eval3 = (list [(int 1), (int 2), (int 3)])
+      eval4 = (list [(int 1), (int 2), (str "abc")])
+      eval5 = (append (str "answer: ")
+               (intToString (plus (int 35) (int 7))))
+      eval6 = (let_ [("f", (lambda (var "x") (var "x")))]
+                        (app (var "f") (int 1)))
 
--- {1, 2, 3}.
-testEvaluation3 :: AST
-testEvaluation3 = (list [(int 1), (int 2), (int 3)])
+evaluationExpected :: [String]
+evaluationExpected =
+    [
+     "(6, \"abc\")",
+     "((\\x -> AVar \"x\"), \"abc\")",
+     "[1, 2, 3]",
+     "Heterogeneous lists are not allowed!",
+     "\"answer: 42\"",
+     "1"
+    ]
 
--- xfail.
-testEvaluation4 :: AST
-testEvaluation4 = (list [(int 1), (int 2), (str "abc")])
+evaluationTests :: [Test]
+evaluationTests = makeListOfTests evaluationActual evaluationExpected
 
--- "answer: 42".
-testEvaluation5 :: AST
-testEvaluation5 = (append (str "answer: ")
-                   (intToString (plus (int 35) (int 7))))
+-- Entry point.
+---------------
 
--- 1.
-testEvaluation6 :: AST
-testEvaluation6 = (let_ [("f", (lambda (var "x") (var "x")))] (app (var "f") (int 1)))
+main :: IO ()
+main = runTestTT allTests >> return ()
+    where
+      allTests = TestList (constraintsTests ++ inferenceTests ++ evaluationTests)
