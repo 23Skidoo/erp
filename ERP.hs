@@ -15,7 +15,7 @@ data AST = ABool Bool | AInt Integer | AStr String
          | AVar String | AAbs AST AST | AApp AST AST
          | ATuple [AST] | AList [AST]
          | ALet [Binding] AST
-         | APlus AST AST | AAppend AST AST | AIntToString AST
+         | ABuiltin String [AST]
            deriving (Eq, Show, Ord)
 
 type ParseResult = Either String AST
@@ -146,7 +146,15 @@ unify ((_, _):_) = fail "Unsolvable constraints"
 type TypingContext = M.Map String Type
 
 emptyTypingContext :: TypingContext
-emptyTypingContext = M.empty
+emptyTypingContext = foldr (\(k,v) m -> M.insert k v m) M.empty builtinTypes
+    where
+      builtinTypes = map (id *** (TSimple)) builtinTypes'
+      builtinTypes' =
+          [
+           ("append", STFun STStr (STFun STStr STStr)),
+           ("intToString", STFun STInt STStr),
+           ("plus", STFun STInt (STFun STInt STInt))
+          ]
 
 lookupCtxST :: String -> TypingContext -> Maybe SimpleType
 lookupCtxST n ctx = M.lookup n ctx >>= extractSimpleType
@@ -302,7 +310,7 @@ typecheck' (ALet bindings body) ti ctx  =
       inferTypesOfBindings [] ti' = Right (ti', [])
       inferTypesOfBindings ((n, v):xs) ti' =
           do (t, nti) <- typecheck' v ti' ctx
-             -- generalize t
+             -- TODO: generalize t
              (nti2, rest) <- inferTypesOfBindings xs nti
              return (nti2, (n, t):rest)
 
@@ -320,29 +328,11 @@ typecheck' (ALet bindings body) ti ctx  =
       hasEqual n ((n1, _):bs) | n == n1   = True
                               | otherwise = hasEqual n bs
 
-
--- TODO: replace by 'builtin'.
-typecheck' (APlus e1 e2) ti ctx =
-    do (t1, ti1) <- getSimpleType e1 ti ctx
-       (t2, ti2) <- getSimpleType e2 ti1 ctx
-       let newti = insertConstrs [(t1, STInt),
-                                  (t2, STInt)] ti2
-       newti2 <- unifyConstrs newti
-       simpleType (STInt, newti2)
-
-typecheck' (AAppend e1 e2) ti ctx =
-    do (t1, ti1) <- getSimpleType e1 ti ctx
-       (t2, ti2) <- getSimpleType e2 ti1 ctx
-       let newti = insertConstrs [(t1, STStr),
-                                  (t2, STStr)] ti2
-       newti2 <- unifyConstrs newti
-       simpleType (STStr, newti2)
-
-typecheck' (AIntToString e1) ti ctx =
-    do (t1, ti1) <- getSimpleType e1 ti ctx
-       let newti = insertConstrs [(t1, STInt)] ti1
-       newti2 <- unifyConstrs newti
-       simpleType (STStr, newti2)
+typecheck' (ABuiltin name args) ti ctx =
+    typecheck' (buildApp (AVar name) args) ti ctx
+    where
+      buildApp f [] = f
+      buildApp f (x:xs) = buildApp (AApp f x) xs
 
 typecheck' _ _ _           = Left "Can't typecheck!"
 
@@ -426,26 +416,6 @@ interpret' env (AList els) =
 interpret' env (ATuple els) = do values <- sequence . map (interpret' env) $ els;
                                  return . VTuple $ values
 
-interpret' env (APlus e1 e2) =
-    do i1 <- getInt e1
-       i2 <- getInt e2
-       return (VInt (i1 + i2))
-    where
-      getInt e = fromVInt =<< interpret' env e
-
-interpret' env (AAppend e1 e2) =
-    do s1 <- getStr e1
-       s2 <- getStr e2
-       return (VStr (s1 ++ s2))
-    where
-      getStr e = fromVStr =<< interpret' env e
-
-interpret' env (AIntToString e1) =
-    do i1 <- getInt e1
-       return (VStr (show i1))
-    where
-      getInt e = fromVInt =<< interpret' env e
-
 interpret' env (ALet [] body) = interpret' env body
 
 interpret' env (ALet ((name, val):xs) body) =
@@ -465,6 +435,41 @@ interpret' env (AApp f e) =
             l@(Left _) -> l
       l@(Left _)       -> l
       _                -> Left "Can't perform application!"
+
+interpret' env (ABuiltin n args) =
+    case n of
+      "plus"        ->
+          do checkArgs 2
+             i1 <- getInt firstArg
+             i2 <- getInt secondArg
+             return . VInt $ i1 + i2
+
+      "append"      ->
+          do checkArgs 2
+             s1 <- getStr firstArg
+             s2 <- getStr secondArg
+             return . VStr $ s1 ++ s2
+
+      "intToString" ->
+          do checkArgs 1
+             i <- getInt firstArg
+             return . VStr $ show i
+
+      _ -> fail "Unknown builtin!"
+
+    where
+      checkArgs argsNeeded =
+          if argsGiven == argsNeeded
+          then return True
+          else fail ("'" ++ n ++ "' takes " ++ show argsNeeded ++
+                     " arguments, but was called with " ++ show argsGiven ++ "!")
+
+      argsGiven = length args
+      firstArg  = head $ args
+      secondArg = head . tail $ args
+
+      getInt e = fromVInt =<< interpret' env e
+      getStr e = fromVStr =<< interpret' env e
 
 -- Client interface.
 interpret :: AST -> EvalResult
@@ -493,14 +498,8 @@ lambda v a = AAbs v a
 app :: AST -> AST -> AST
 app f e = AApp f e
 
-plus :: AST -> AST -> AST
-plus e1 e2 = APlus e1 e2
-
-append :: AST -> AST -> AST
-append e1 e2 = AAppend e1 e2
-
-intToString :: AST -> AST
-intToString e1 = AIntToString e1
+let_ :: [(String, AST)] -> AST -> AST
+let_ bindings body = ALet bindings body
 
 list :: [AST] -> AST
 list e = AList e
@@ -508,5 +507,15 @@ list e = AList e
 tuple :: [AST] -> AST
 tuple e = ATuple e
 
-let_ :: [(String, AST)] -> AST -> AST
-let_ bindings body = ALet bindings body
+builtin :: String -> [AST] -> AST
+builtin n args = ABuiltin n args
+
+plus :: AST -> AST -> AST
+plus e1 e2 = ABuiltin "plus" [e1, e2]
+
+append :: AST -> AST -> AST
+append e1 e2 = ABuiltin "append" [e1, e2]
+
+intToString :: AST -> AST
+intToString e1 = ABuiltin "intToString" [e1]
+

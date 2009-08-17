@@ -6,8 +6,14 @@ import Test.HUnit
 
 import ERP
 
+-- Helpers.
+-----------
+
 makeListOfTests :: (Eq a, Show a) => [a] -> [a] -> [Test]
-makeListOfTests = zipWith (~?=)
+makeListOfTests actual expected =
+    if length actual == length expected
+    then zipWith (~?=) actual expected
+    else error "makeListOfTests: both lists should be the same length!"
 
 -- Constraint solver tests.
 ---------------------------
@@ -55,25 +61,31 @@ inferenceActual = map (either id showType . typecheck) allTests
     where
       allTests = [inference0, inference1, inference2, inference3,
                   inference4, inference5, inference6, inference7,
-                  inference8, inference9, inference10, inference11]
+                  inference8, inference9, inference10, inference11,
+                  inference12
+                 ]
 
       inference0 = (app (lambda (var "x") (var "x")) (int 1))
       inference1 = (lambda (var "x") (var "x"))
       inference2 = (lambda (var "x") (plus (var "x") (var "x")))
       inference3 = (plus (str "abc") (int 2))
-      inference4 = (lambda (var "y") (lambda (var "x") (plus (var "y") (var "x"))))
+      inference4 = (lambda (var "y")
+                    (lambda (var "x") (plus (var "y") (var "x"))))
       inference5 = (lambda (var "x") (str "abc"))
       inference6 = (lambda (var "y") (lambda (var "x") (str "abc")))
-      inference7 =  (lambda (var "a")  (lambda (var "z")
-                                        (lambda (var "y") (lambda (var "x") (int 42)))))
+      inference7 =  (lambda (var "a")
+                     (lambda (var "z")
+                      (lambda (var "y") (lambda (var "x") (int 42)))))
       inference8 = (lambda (var "x") (append (var "x") (var "x")))
-      inference9 = (let_ [("f", (int 1)), ("f", (int 2))] (plus (var "f") (var "f")))
+      inference9 = (let_ [("f", (int 1)), ("f", (int 2))]
+                             (plus (var "f") (var "f")))
       inference10 = (let_ [("f", (lambda (var "x") (var "x")))]
                      (tuple [(app (var "f") (str "abc")),
                              (app (var "f") (str "abc"))]))
       inference11 = (let_ [("f", (lambda (var "x") (var "x")))]
                             (tuple [(app (var "f") (str "abc")),
                                     (app (var "f") (int 1))]))
+      inference12 = (builtin "plus" [(int 1), (int 2), (int 3)])
 
 inferenceExpected :: [String]
 inferenceExpected =
@@ -90,7 +102,8 @@ inferenceExpected =
      "Conflicting definitions in let-expression!",
      "(string, string)",
 
-     -- TOFIX: this must be (string, int) after let-polymorphism is in.
+     -- TOFIX: this must be (string, int) after let-polymorphism lands.
+     "Unsolvable constraints",
      "Unsolvable constraints"
     ]
 
@@ -103,7 +116,7 @@ inferenceTests = makeListOfTests inferenceActual inferenceExpected
 evaluationActual :: [String]
 evaluationActual = map (either id showValue . evaluate) allTests
     where
-      allTests = [eval1, eval2, eval3, eval4, eval5, eval6]
+      allTests = [eval1, eval2, eval3, eval4, eval5, eval6, eval7]
 
       eval1 = (tuple [(int 6), (str "abc")])
       eval2 = (tuple [(lambda (var "x") (var "x")), (str "abc")])
@@ -113,6 +126,7 @@ evaluationActual = map (either id showValue . evaluate) allTests
                (intToString (plus (int 35) (int 7))))
       eval6 = (let_ [("f", (lambda (var "x") (var "x")))]
                         (app (var "f") (int 1)))
+      eval7 = (builtin "plus" [(int 1), (int 2)])
 
 evaluationExpected :: [String]
 evaluationExpected =
@@ -122,7 +136,8 @@ evaluationExpected =
      "[1, 2, 3]",
      "Heterogeneous lists are not allowed!",
      "\"answer: 42\"",
-     "1"
+     "1",
+     "3"
     ]
 
 evaluationTests :: [Test]
@@ -134,4 +149,5 @@ evaluationTests = makeListOfTests evaluationActual evaluationExpected
 main :: IO ()
 main = runTestTT allTests >> return ()
     where
-      allTests = TestList (constraintsTests ++ inferenceTests ++ evaluationTests)
+      allTests = TestList (constraintsTests ++
+                           inferenceTests ++ evaluationTests)
