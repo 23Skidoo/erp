@@ -3,7 +3,7 @@ module ERP
 
 import Control.Arrow ((***))
 import Control.Monad.Error
-import Data.List (foldl')
+import Data.List (foldl', intersperse)
 import Data.Maybe
 import qualified Data.Map as M
 
@@ -24,7 +24,7 @@ parse = undefined
 ---------------
 -- Types.
 data SimpleType = STBool | STInt | STStr
---                | STList SimpleType | STTuple [SimpleType]
+                | STList SimpleType | STTuple [SimpleType]
                 | STFun SimpleType SimpleType | STBase String
                   deriving (Eq, Show)
 
@@ -36,11 +36,14 @@ data Type = TSimple SimpleType | TScheme TypeScheme
 
 -- Type pretty-printing.
 showSimpleType :: SimpleType -> String
-showSimpleType STBool = "bool"
-showSimpleType STInt = "int"
-showSimpleType STStr = "string"
-showSimpleType (STFun a b) = showSimpleType a ++ " -> " ++ showSimpleType b
-showSimpleType (STBase s) = s
+showSimpleType STBool        = "bool"
+showSimpleType STInt         = "int"
+showSimpleType STStr         = "string"
+showSimpleType (STList st)   = "[" ++ (showSimpleType st) ++ "]"
+showSimpleType (STTuple sts) = ("(" ++ (concat . intersperse ", "
+                                        . map showSimpleType $ sts) ++ ")")
+showSimpleType (STFun a b)   = showSimpleType a ++ " -> " ++ showSimpleType b
+showSimpleType (STBase s)    = s
 
 showTypeScheme :: TypeScheme -> String
 showTypeScheme (TSVar st) = showSimpleType st
@@ -116,6 +119,14 @@ unify ((STFun s1 s2, STFun t1 t2):cs) = unify ncs
     where
       ncs = cs ++ [(s1, t1), (s2, t2)]
 
+unify ((STList s1, STList s2):cs) = unify ncs
+    where
+      ncs = cs ++ [(s1, s2)]
+
+unify ((STTuple els1, STTuple els2):cs) = unify ncs
+    where
+      ncs = cs ++ (zipWith (,) els1 els2)
+
 unify ((_, _):_) = error "Unsolvable constraints"
 
 
@@ -175,16 +186,54 @@ simpleType :: (SimpleType, TypingInfo) -> Either a (Type, TypingInfo)
 simpleType (t, ti) = Right (TSimple t, ti)
 
 getSimpleType :: AST -> TypingInfo -> TypingContext -> SimpleTypecheckResult
-getSimpleType e ti ctx = typecheck' e ti ctx >>= getSimpleType'
-    where
-      getSimpleType' (TSimple t, ti') = return (t, ti')
-      getSimpleType' _ = fail "One of plus's operands is not a simple type"
+getSimpleType e ti ctx = do (t, nti) <- typecheck' e ti ctx
+                            st <- extractSimpleType t
+                            return (st, nti)
 
+extractSimpleType :: (Monad m) => Type -> m SimpleType
+extractSimpleType (TSimple t) = return t
+extractSimpleType _           = fail "One of plus's operands is not a simple type"
+
+type SimpleTypecheckListResult = Either String ([SimpleType], TypingInfo)
+
+getSimpleTypes :: [AST] -> TypingInfo ->
+                  TypingContext -> SimpleTypecheckListResult
+getSimpleTypes [] ti _ = Right ([], ti)
+getSimpleTypes (x:xs) ti ctx =
+    do (t1, nti) <- getSimpleType x ti ctx
+       (ts, nti2) <- getSimpleTypes xs nti ctx
+       return (t1:ts, nti2)
+
+newTypeVariable :: TypingInfo -> (SimpleType, TypingInfo)
+newTypeVariable ti = (STBase sym, nti)
+    where
+      (sym, nti) = gensym ti
 
 typecheck' :: AST -> TypingInfo -> TypingContext -> TypecheckResult
 typecheck' (ABool _) ti _ = simpleType (STBool , ti)
 typecheck' (AInt  _) ti _ = simpleType (STInt  , ti)
 typecheck' (AStr  _) ti _ = simpleType (STStr  , ti)
+
+typecheck' (AList [])  ti _ = simpleType (STList newVar, nti)
+    where
+      (newVar, nti) = newTypeVariable ti
+
+typecheck' (AList els) ti ctx =
+    do (simpleEls, nti) <- getSimpleTypes els ti ctx
+       let (newVar, nti2) = newTypeVariable nti
+       let listConstrs = zipWith (,) (newVar:simpleEls) simpleEls
+       let nti3 = insertConstrs listConstrs nti2
+       let nti4 = unifyConstrs nti3
+       elType <- extractSimpleType . inferType nti4 $ newVar
+       simpleType (STList elType , nti4)
+
+typecheck' (ATuple []) ti _ = simpleType (STTuple [newVar], nti)
+    where
+      (newVar, nti) = newTypeVariable ti
+
+typecheck' (ATuple els) ti ctx =
+    do (simpleEls, nti) <- getSimpleTypes els ti ctx
+       simpleType (STTuple simpleEls, nti)
 
 typecheck' (AVar n) ti ctx =
     case lookupCtx n ctx of
@@ -200,8 +249,7 @@ typecheck' (AAbs (AVar v) b) ti ctx =
              newFunType = inferType nti3 funType
        l -> l
     where
-      (sym, nti) = gensym ti
-      varType = STBase sym
+      (varType, nti) = newTypeVariable ti
 
 typecheck' (APlus e1 e2) ti ctx =
     do (t1, ti1) <- getSimpleType e1 ti ctx
@@ -214,8 +262,7 @@ typecheck' (APlus e1 e2) ti ctx =
 typecheck' (AApp f a) ti ctx  =
     do (tf, ti1) <- getSimpleType f ti ctx
        (ta, ti2) <- getSimpleType a ti1 ctx
-       let (sym, ti3) = gensym ti2
-       let retType = STBase sym
+       let (retType, ti3) = newTypeVariable ti2
        let newConstr = (tf, STFun ta retType)
        let ti4 = insertConstr newConstr ti3
        let ti5 = unifyConstrs ti4
