@@ -1,3 +1,5 @@
 - Let-polymorphism.
+- A special "builtin" form.
+- Automate tests.
 - List comprehensions.
 - Reduce.
