@@ -101,7 +101,7 @@ testEvaluation3 = (list [(int 1), (int 2), (int 3)])
 testEvaluation4 :: AST
 testEvaluation4 = (list [(int 1), (int 2), (str "abc")])
 
--- Right (VStr "answer: 42")
+-- "answer: 42".
 testEvaluation5 :: AST
 testEvaluation5 = (append (str "answer: ")
                    (intToString (plus (int 35) (int 7))))
