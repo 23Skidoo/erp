@@ -3,6 +3,9 @@ module Test
 
 import ERP
 
+-- Constraint solver tests.
+---------------------------
+
 -- Y = int -> int ; X = int.
 testConstraints1 :: ConstraintSet
 testConstraints1 = [(STBase "X", STInt),
@@ -39,6 +42,9 @@ testConstraints7 = [(STFun (STBase "x_0") (STBase "x_0"),
 testConstraints8 :: ConstraintSet
 testConstraints8 = [(STStr,STInt),(STInt,STInt)]
 
+-- Type inference tests.
+------------------------
+
 -- int.
 testInference1 :: AST
 testInference1 = (app (lambda (var "x") (var "x")) (int 1))
@@ -66,3 +72,22 @@ testInference6 = (lambda (var "x") (str "abc"))
 -- x -> y -> string.
 testInference7 :: AST
 testInference7 = (lambda (var "y") (lambda (var "x") (str "abc")))
+
+-- Evaluator tests.
+-------------------
+
+-- (6, "abc").
+testEvaluation1 :: AST
+testEvaluation1 = (tuple [(int 6), (str "abc")])
+
+-- xfail.
+testEvaluation2 :: AST
+testEvaluation2 = (tuple [(lambda (var "x") (var "x")), (str "abc")])
+
+-- {1, 2, 3}.
+testEvaluation3 :: AST
+testEvaluation3 = (list [(int 1), (int 2), (int 3)])
+
+-- xfail.
+testEvaluation4 :: AST
+testEvaluation4 = (list [(int 1), (int 2), (str "abc")])
