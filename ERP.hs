@@ -493,6 +493,14 @@ fromVStr :: Value -> Either String String
 fromVStr (VStr i) = Right i
 fromVStr _        = Left "The value is not an string!"
 
+fromVTuple :: Value -> Either String [Value]
+fromVTuple (VTuple l) = Right l
+fromVTuple _          = Left "The value is not an tuple!"
+
+fromVList :: Value -> Either String [Value]
+fromVList (VList l) = Right l
+fromVList _         = Left "The value is not a list!"
+
 interpret' :: Environment -> AST -> EvalResult
 interpret' _ (ABool b)  = Right (VBool b)
 interpret' _ (AStr s)   = Right (VStr s)
@@ -554,15 +562,20 @@ interpret' env (ABuiltin n args) =
 
       "fst" ->
           do checkArgs 1
-             fail "Not implemented!"
+             l <- getTuple firstArg
+             checkTupleLength l
+             return . head $ l
 
       "snd" ->
           do checkArgs 1
-             fail "Not implemented!"
+             l <- getTuple firstArg
+             checkTupleLength l
+             return . head . tail $ l
 
       "length" ->
           do checkArgs 1
-             fail "Not implemented!"
+             l <- getList firstArg
+             return . VInt . toInteger . length $ l
 
       _ -> fail "Unknown builtin!"
 
@@ -573,12 +586,17 @@ interpret' env (ABuiltin n args) =
           else fail ("'" ++ n ++ "' takes " ++ show argsNeeded ++
                      " arguments, but was called with " ++ show argsGiven ++ "!")
 
+      checkTupleLength l =
+          when (length l /= 2) (fail "The tuple must have 2 elements!")
+
       argsGiven = length args
       firstArg  = head $ args
       secondArg = head . tail $ args
 
-      getInt e = fromVInt =<< interpret' env e
-      getStr e = fromVStr =<< interpret' env e
+      getInt e   = fromVInt =<< interpret' env e
+      getStr e   = fromVStr =<< interpret' env e
+      getTuple e = fromVTuple =<< interpret' env e
+      getList e  = fromVList =<< interpret' env e
 
 -- Client interface.
 interpret :: AST -> EvalResult

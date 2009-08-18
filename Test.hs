@@ -91,7 +91,10 @@ inferenceActual = map (either id showType . typecheck) allTests
                  (tuple [(app (var "f") (int 1)),
                          (app (var "f") (bool True))])),
        (tuple [(myLength (list [(int 1), (int 2), (int 3)])),
-               (myLength (list [(str "abc")]))])
+               (myLength (list [(str "abc")]))]),
+       (mySnd (tuple [(var "x"), (int 1)])),
+       (let_ [("t", (tuple [(bool True), (str "aaa")]))]
+        (tuple [(mySnd (var "t")), (myFst (var "t"))]))
         ]
 
 inferenceExpected :: [String]
@@ -115,7 +118,9 @@ inferenceExpected =
      "string",
      "(string, bool)",
      "(int, bool)",
-     "(int, int)"
+     "(int, int)",
+     "Unknown variable 'x'!",
+     "(string, bool)"
     ]
 
 inferenceTests :: [Test]
@@ -127,17 +132,22 @@ inferenceTests = makeListOfTests inferenceActual inferenceExpected
 evaluationActual :: [String]
 evaluationActual = map (either id showValue . interpret) allTests
     where
-      allTests = [eval1, eval2, eval3, eval4, eval5, eval6, eval7]
+      allTests = [
+       (tuple [(int 6), (str "abc")]),
+       (tuple [(lambda (var "x") (var "x")), (str "abc")]),
+       (list [(int 1), (int 2), (int 3)]),
+       (list [(int 1), (int 2), (str "abc")]),
+       (append (str "answer: ")
+        (intToString (plus (int 35) (int 7)))),
+       (let_ [("f", (lambda (var "x") (var "x")))]
+                 (app (var "f") (int 1))),
+       (builtin "plus" [(int 1), (int 2)]),
+       (tuple [(myLength (list [(int 1), (int 2), (int 3)])),
+               (myLength (list [(str "abc")]))]),
+       (let_ [("t", (tuple [(bool True), (str "aaa")]))]
+        (tuple [(mySnd (var "t")), (myFst (var "t"))]))
+        ]
 
-      eval1 = (tuple [(int 6), (str "abc")])
-      eval2 = (tuple [(lambda (var "x") (var "x")), (str "abc")])
-      eval3 = (list [(int 1), (int 2), (int 3)])
-      eval4 = (list [(int 1), (int 2), (str "abc")])
-      eval5 = (append (str "answer: ")
-               (intToString (plus (int 35) (int 7))))
-      eval6 = (let_ [("f", (lambda (var "x") (var "x")))]
-                        (app (var "f") (int 1)))
-      eval7 = (builtin "plus" [(int 1), (int 2)])
 
 evaluationExpected :: [String]
 evaluationExpected =
@@ -148,7 +158,9 @@ evaluationExpected =
      "Heterogeneous lists are not allowed!",
      "\"answer: 42\"",
      "1",
-     "3"
+     "3",
+     "(3, 1)",
+     "(\"aaa\", True)"
     ]
 
 evaluationTests :: [Test]
