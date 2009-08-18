@@ -201,23 +201,23 @@ defaultTypingContext = M.fromList builtinTypes
            ("fst",    forAllTS ["a", "b"] simpleFstType),
            ("snd",    forAllTS ["a", "b"] simpleSndType),
            ("length", forAllTS ["a"] simpleLengthType),
-           ("reduce", forAllTS ["a", "b"] simpleReduceType),
            ("map",    forAllTS ["a", "b"] simpleMapType),
+           ("reduce", forAllTS ["a", "b"] simpleReduceType),
            ("filter", forAllTS ["a"] simpleFilterType)
           ]
       simpleFstType    = STFun (STTuple [STBase "a", STBase "b"]) (STBase "a")
       simpleSndType    = STFun (STTuple [STBase "a", STBase "b"]) (STBase "b")
       simpleLengthType = STFun (STList (STBase "a")) STInt
 
+      -- (a -> b) -> [a] -> [b]
+      simpleMapType = STFun (STFun (STBase "a") (STBase "b"))
+                      (STFun (STList (STBase "a")) (STList (STBase "b")))
+
       -- (a -> b -> a) -> a -> [b] -> a
       simpleReduceType = STFun (STFun (STBase "a")
                                 (STFun (STBase "b") (STBase "a")))
                          (STFun (STBase "a")
                           (STFun (STList (STBase "b")) (STBase "a")))
-
-      -- (a -> b) -> [a] -> [b]
-      simpleMapType = STFun (STFun (STBase "a") (STBase "b"))
-                      (STFun (STList (STBase "a")) (STList (STBase "b")))
 
       -- (a -> bool) -> [a] -> [a]
       simpleFilterType = STFun (STFun (STBase "a") STBool)
@@ -512,20 +512,7 @@ isEqualV (VBuiltin b1 _ _ _) (VBuiltin b2 _ _ _) = (b1 == b2)
 isEqualV (VAbs _ _) (VAbs _ _)       = False
 isEqualV _ _                         = False
 
--- Default environment, pre-populated with builtin functions.
-defaultEnvironment :: Environment
-defaultEnvironment = M.fromList defaultBindings
-    where
-      defaultBindings =
-          [
-           ("concat", makeBuiltin "concat" 2),
-           ("intToString", makeBuiltin "intToString" 1),
-           ("plus", makeBuiltin "plus" 2),
-           ("fst", makeBuiltin "fst" 1),
-           ("snd", makeBuiltin "snd" 1),
-           ("length", makeBuiltin "length" 1)
-          ]
-
+-- Helper functions that extract underlying values from the Value type.
 fromVInt :: Value -> Either String Integer
 fromVInt (VInt i) = Right i
 fromVInt _        = Left "The value is not an integer!"
@@ -542,9 +529,23 @@ fromVList :: Value -> Either String [Value]
 fromVList (VList l) = Right l
 fromVList _         = Left "The value is not a list!"
 
-makeBuiltin :: String -> Int -> Value
+-- Default environment, pre-populated with builtin functions.
+defaultEnvironment :: Environment
+defaultEnvironment = M.fromList defaultBindings
+    where
+      defaultBindings :: [(String, Value)]
+      defaultBindings = map (uncurry makeBuiltin) defaultBindings'
+
+      defaultBindings' = [ ("concat", 2), ("intToString", 1),
+                           ("plus", 2), ("fst", 1),
+                           ("snd", 1), ("length", 1),
+                           ("map", 2), ("reduce", 3),
+                           ("filter", 2)
+                         ]
+
+makeBuiltin :: String -> Int -> (String, Value)
 makeBuiltin name argsReq = let f = builtinFun name
-                           in (VBuiltin name f [] argsReq)
+                           in (name, (VBuiltin name f [] argsReq))
 
 builtinFun :: String -> BuiltinFun
 builtinFun name args _
@@ -582,8 +583,16 @@ builtinFun name args _
            l <- fromVList firstArg
            return . VInt . toInteger . length $ l
 
+    | name == "map" =
+        do checkArgs 2
+           fail "Not implemented!"
+
     | name == "reduce" =
         do checkArgs 3
+           fail "Not implemented!"
+
+    | name == "filter" =
+        do checkArgs 2
            fail "Not implemented!"
 
     | otherwise = fail "Unknown builtin!"
