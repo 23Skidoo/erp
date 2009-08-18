@@ -103,7 +103,11 @@ astTests = [
   (app (var "f") (int 1))),
  (builtin_app "plus" [(int 1), (int 2)]),
  (let_ [("f", (app (builtin "plus") (int 1)))] (app (var "f") (int 22))),
- (app (lambda (var "x") (snd_ (var "x"))) (tuple [(int 1), (bool False)]))
+ (app (lambda (var "x") (snd_ (var "x"))) (tuple [(int 1), (bool False)])),
+ (map_ (lambda (var "x") (plus (var "x") (int 64))) (list [(int 1), (int 2)])),
+ (filter_ (lambda (var "y") (bool False)) (list [(str "abc"), (str "def")])),
+ (reduce (lambda (var "x") (lambda (var "y") (plus (var "x") (var "y"))))
+             (int 0) (list [(int 1), (int 2), (int 3)]))
     ]
 
 -- Type inference tests.
@@ -144,7 +148,10 @@ inferenceExpected =
      "int",
      "int",
      "int",
-     "bool"
+     "bool",
+     "[int]",
+     "[string]",
+     "int"
     ]
 
 inferenceTests :: [Test]
@@ -188,7 +195,9 @@ evaluationExpected =
      "1",
      "3",
      "23",
-     "False"
+     "False",
+     -- TOFIX
+     "", "", ""
     ]
 
 evaluationTests :: [Test]

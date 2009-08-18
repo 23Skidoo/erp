@@ -76,6 +76,8 @@ showSimpleType STStr         = "string"
 showSimpleType (STList st)   = "[" ++ (showSimpleType st) ++ "]"
 showSimpleType (STTuple sts) = ("(" ++ (concat . intersperse ", "
                                         . map showSimpleType $ sts) ++ ")")
+showSimpleType (STFun f@(STFun _ _) a)
+    = "(" ++ showSimpleType f ++ ") -> " ++ showSimpleType a
 showSimpleType (STFun a b)   = showSimpleType a ++ " -> " ++ showSimpleType b
 showSimpleType (STBase s)    = s
 
@@ -198,11 +200,30 @@ defaultTypingContext = M.fromList builtinTypes
           [
            ("fst",    forAllTS ["a", "b"] simpleFstType),
            ("snd",    forAllTS ["a", "b"] simpleSndType),
-           ("length", forAllTS ["a"] simpleLengthType)
+           ("length", forAllTS ["a"] simpleLengthType),
+           ("reduce", forAllTS ["a", "b"] simpleReduceType),
+           ("map",    forAllTS ["a", "b"] simpleMapType),
+           ("filter", forAllTS ["a"] simpleFilterType)
           ]
       simpleFstType    = STFun (STTuple [STBase "a", STBase "b"]) (STBase "a")
       simpleSndType    = STFun (STTuple [STBase "a", STBase "b"]) (STBase "b")
       simpleLengthType = STFun (STList (STBase "a")) STInt
+
+      -- (a -> b -> a) -> a -> [b] -> a
+      simpleReduceType = STFun (STFun (STBase "a")
+                                (STFun (STBase "b") (STBase "a")))
+                         (STFun (STBase "a")
+                          (STFun (STList (STBase "b")) (STBase "a")))
+
+      -- (a -> b) -> [a] -> [b]
+      simpleMapType = STFun (STFun (STBase "a") (STBase "b"))
+                      (STFun (STList (STBase "a")) (STList (STBase "b")))
+
+      -- (a -> bool) -> [a] -> [a]
+      simpleFilterType = STFun (STFun (STBase "a") STBool)
+                         (STFun (STList (STBase "a")) (STList (STBase "a")))
+
+
 
 lookupCtxST :: String -> TypingContext -> Maybe SimpleType
 lookupCtxST n ctx = M.lookup n ctx >>= extractSimpleType
@@ -703,3 +724,9 @@ snd_ e1 = AApp (ABuiltin "snd") e1
 
 reduce :: AST -> AST -> AST -> AST
 reduce f v l = (AApp (AApp (AApp (ABuiltin "reduce") f) v) l)
+
+map_ :: AST -> AST -> AST
+map_ f l = (AApp (AApp (ABuiltin "map") f) l)
+
+filter_ :: AST -> AST -> AST
+filter_ f l = (AApp (AApp (ABuiltin "filter") f) l)
