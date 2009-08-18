@@ -37,6 +37,37 @@ data TypeScheme = TSVar SimpleType | TSForAll String TypeScheme
 data Type = TSimple SimpleType | TScheme TypeScheme
             deriving (Eq, Show)
 
+-- "Syntax sugar" for type schemes.
+forAllTS :: [String] -> SimpleType -> TypeScheme
+forAllTS [] t     = TSVar t
+forAllTS (x:xs) t = TSForAll x (forAllTS xs t)
+
+-- Apply f to all type variable nodes in the given simple type.
+mapSTVars :: (SimpleType -> SimpleType) -> SimpleType -> SimpleType
+mapSTVars f t@(STBase _)   = f t
+mapSTVars f (STFun ta tb)  = (STFun (mapSTVars f ta) (mapSTVars f tb))
+mapSTVars f (STList te)    = STList . mapSTVars f $ te
+mapSTVars f (STTuple elts) = STTuple . map (mapSTVars f) $ elts
+mapSTVars _ STBool         = STBool
+mapSTVars _ STStr          = STStr
+mapSTVars _ STInt          = STInt
+
+-- A fold over all type variables in the type tree.
+foldSTVars :: (SimpleType -> a -> a) -> a -> SimpleType -> a
+foldSTVars f v t@(STBase _)     = f t v
+foldSTVars f v (STFun ta tb)    = foldSTVars f (foldSTVars f v ta) tb
+foldSTVars f v (STList te)      = foldSTVars f v te
+foldSTVars _ v (STTuple [])     = v
+foldSTVars f v (STTuple (x:xs)) = foldSTVars f (foldSTVars f v (STTuple xs)) x
+foldSTVars _ v STBool           = v
+foldSTVars _ v STStr            = v
+foldSTVars _ v STInt            = v
+
+-- Given a type variable, return its name.
+extractTVName :: (Monad m) => SimpleType -> m String
+extractTVName (STBase s) = return s
+extractTVName t          = fail ("The type " ++ show t ++ "must be a type variable!")
+
 -- Type pretty-printing.
 showSimpleType :: SimpleType -> String
 showSimpleType STBool        = "bool"
@@ -73,13 +104,16 @@ showConstraintSet s = "{" ++ (concat . intersperse ", " . map showConstraint $ s
 mergeSubstitutions :: Substitution -> Substitution -> Substitution
 mergeSubstitutions s1 s2 = s1 ++ s2
 
+-- Given a type variable n, a type nt, and a type old, substitute all
+-- occurences of n in old for nt.
 substituteTypeVariableWithType :: (SimpleType -> SimpleType
                                    -> SimpleType -> SimpleType)
-substituteTypeVariableWithType (STBase n) nt old = doSubstitute old
+substituteTypeVariableWithType (STBase n) nt old = mapSTVars doSubstitute old
     where
-      doSubstitute (STBase s) | (s == n) = nt
-      doSubstitute (STFun ta tb) = (STFun (doSubstitute ta) (doSubstitute tb))
-      doSubstitute x = x
+      doSubstitute ot@(STBase s) | (s == n)  = nt
+                                 | otherwise = ot
+      doSubstitute x  = x
+
 substituteTypeVariableWithType _ _ _ =
     error ("The first argument to 'substituteVariableWithType' " ++
            "should be a type variable!")
@@ -142,25 +176,32 @@ unify ((STTuple els1, STTuple els2):cs)
 
 unify ((_, _):_) = fail "Unsolvable constraints"
 
-
 -- Typing context.
 type TypingContext = M.Map String Type
 
-emptyTypingContext :: TypingContext
-emptyTypingContext = foldr (\(k,v) m -> M.insert k v m) M.empty builtinTypes
+standardTypingContext :: TypingContext
+standardTypingContext = M.fromList builtinTypes
     where
-      builtinTypes = map (id *** (TSimple)) builtinTypes'
-      builtinTypes' =
+      builtinTypes = builtinSimpleTypes ++ builtinTypeSchemes
+
+      builtinSimpleTypes = map (id *** (TSimple)) builtinSimpleTypes'
+      builtinSimpleTypes' =
           [
            ("append", STFun STStr (STFun STStr STStr)),
            ("intToString", STFun STInt STStr),
-           ("plus", STFun STInt (STFun STInt STInt)),
-
-           -- TODO: implement fst/snd and length
-           ("fst", STFun (STTuple [STInt, STInt]) STInt),
-           ("snd", STFun (STTuple [STInt, STInt]) STInt),
-           ("length", STFun (STList STInt) STInt)
+           ("plus", STFun STInt (STFun STInt STInt))
           ]
+
+      builtinTypeSchemes = map (id *** (TScheme)) builtinTypeSchemes'
+      builtinTypeSchemes' =
+          [
+           ("fst",    forAllTS ["a", "b"] simpleFstType),
+           ("snd",    forAllTS ["a", "b"] simpleSndType),
+           ("length", forAllTS ["a"] simpleLengthType)
+          ]
+      simpleFstType    = STFun (STTuple [STBase "a", STBase "b"]) (STBase "a")
+      simpleSndType    = STFun (STTuple [STBase "a", STBase "b"]) (STBase "b")
+      simpleLengthType = STFun (STList (STBase "a")) STInt
 
 lookupCtxST :: String -> TypingContext -> Maybe SimpleType
 lookupCtxST n ctx = M.lookup n ctx >>= extractSimpleType
@@ -195,10 +236,19 @@ gensym :: TypingInfo -> (Sym, TypingInfo)
 gensym ti = let NextSym (sym, ngens) = gens ti ()
             in (sym, ti { gens = ngens })
 
+-- Create a new type variable.
 newTypeVariable :: TypingInfo -> (SimpleType, TypingInfo)
 newTypeVariable ti = (STBase sym, nti)
     where
       (sym, nti) = gensym ti
+
+-- Create n new type variables
+newTypeVariables :: Int -> TypingInfo -> ([SimpleType], TypingInfo)
+newTypeVariables m ti = newTypeVariables' m ti []
+    where
+      newTypeVariables' 0 ti' acc = (acc, ti')
+      newTypeVariables' n ti' acc = let (st, nti) = newTypeVariable ti'
+                                    in newTypeVariables' (n-1) nti (acc ++ [st])
 
 insertConstr :: Constraint -> TypingInfo -> TypingInfo
 insertConstr c ti = let oldconstrs = constrs ti
@@ -249,6 +299,45 @@ getSimpleTypes (x:xs) ti ctx =
        (ts, nti2) <- getSimpleTypes xs nti ctx
        return (t1:ts, nti2)
 
+-- Given a type scheme, instantiate it with fresh type variables.
+instantiateTypeScheme :: TypeScheme -> TypingInfo -> TypecheckResult
+instantiateTypeScheme ts ti =
+    do let st = underlyingSimpleType ts
+       let (subst, nti) = typeSchemeToSubstitution ts ti []
+       return (TSimple . applySubstitution subst $ st, nti)
+
+-- Get the underlying simple type from a type scheme.
+underlyingSimpleType :: TypeScheme -> SimpleType
+underlyingSimpleType (TSVar st) = st
+underlyingSimpleType (TSForAll _ ts) = underlyingSimpleType ts
+
+-- Given a type scheme, extract the assumed substitution.
+typeSchemeToSubstitution :: TypeScheme -> TypingInfo
+                         -> Substitution -> (Substitution, TypingInfo)
+typeSchemeToSubstitution (TSVar _) ti s = (s, ti)
+typeSchemeToSubstitution (TSForAll x ts) ti s
+    = let (tv, nti) = newTypeVariable ti
+      in typeSchemeToSubstitution ts nti ((STBase x, tv):s)
+
+-- Given a type, try to generalize all remaining free type variables (with
+-- regard to context).
+generalizeType :: Type -> TypingInfo -> TypingContext -> TypecheckResult
+generalizeType ts@(TScheme _) ti _ = return (ts, ti)
+generalizeType (TSimple st) ti ctx =
+    do let freeTypeVariables = foldSTVars doGeneralize [] st
+       let (newVars, nti) = newTypeVariables (length freeTypeVariables) ti
+       let subst = zipWith (,) freeTypeVariables newVars
+       let nst = applySubstitution subst st
+       newTypeVariableNames <- mapM extractTVName newVars
+       return (TScheme . forAllTS newTypeVariableNames $ nst, nti)
+    where
+       doGeneralize :: SimpleType -> [SimpleType] -> [SimpleType]
+       doGeneralize st'@(STBase n) lst | notInContext n = st':lst
+       doGeneralize _ lst = lst
+
+       notInContext :: String -> Bool
+       notInContext = not . (flip M.member) ctx
+
 type TypecheckResult = Either String (Type, TypingInfo)
 type BindingTypes = [(String, Type)]
 type InferTypesOfBindingsResult = Either String (TypingInfo, BindingTypes)
@@ -283,7 +372,9 @@ typecheck' (ATuple els) ti ctx =
 typecheck' (AVar n) ti ctx =
     case lookupCtxST n ctx of
       Just t -> Right ((TSimple t), ti)
-      Nothing -> Left ("Unknown variable '" ++ n ++ "'!")
+      Nothing -> case lookupCtxTS n ctx of
+                   Just ts -> instantiateTypeScheme ts ti
+                   Nothing -> fail ("Unknown variable '" ++ n ++ "'!")
 
 typecheck' (AAbs (AVar v) b) ti ctx =
     do let (varType, nti) = newTypeVariable ti
@@ -316,9 +407,9 @@ typecheck' (ALet bindings body) ti ctx  =
       inferTypesOfBindings [] ti' = Right (ti', [])
       inferTypesOfBindings ((n, v):xs) ti' =
           do (t, nti) <- typecheck' v ti' ctx
-             -- TODO: generalize t
-             (nti2, rest) <- inferTypesOfBindings xs nti
-             return (nti2, (n, t):rest)
+             (gent, nti2) <- generalizeType t nti ctx
+             (nti3, rest) <- inferTypesOfBindings xs nti2
+             return (nti3, (n, gent):rest)
 
       -- Check that there are no identically-named bindings.
       check_bindings :: (Monad m) => [Binding] -> m Bool
@@ -346,12 +437,12 @@ typecheck' _ _ _           = Left "Can't typecheck!"
 
 typecheck :: AST -> Either String Type
 typecheck ast =
-    do (t, _) <- typecheck' ast emptyTypingInfo emptyTypingContext
+    do (t, _) <- typecheck' ast emptyTypingInfo standardTypingContext
        return t
 
 typecheck_pretty :: AST -> String
 typecheck_pretty ast =
-    case typecheck' ast emptyTypingInfo emptyTypingContext
+    case typecheck' ast emptyTypingInfo standardTypingContext
     of Left l -> error l
        -- Laziness can be so much fun sometimes...
        Right (t, ti) -> constrs ti `seq` showType t
@@ -541,4 +632,13 @@ append e1 e2 = ABuiltin "append" [e1, e2]
 
 intToString :: AST -> AST
 intToString e1 = ABuiltin "intToString" [e1]
+
+myLength :: AST -> AST
+myLength e1 = ABuiltin "length" [e1]
+
+myFst :: AST -> AST
+myFst e1 = ABuiltin "fst" [e1]
+
+mySnd :: AST -> AST
+mySnd e1 = ABuiltin "snd" [e1]
 

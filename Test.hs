@@ -59,35 +59,40 @@ constraintsTests = makeListOfTests constraintsActual constraintsExpected
 inferenceActual :: [String]
 inferenceActual = map (either id showType . typecheck) allTests
     where
-      allTests = [inference0, inference1, inference2, inference3,
-                  inference4, inference5, inference6, inference7,
-                  inference8, inference9, inference10, inference11,
-                  inference12, inference13, inference14
-                 ]
-
-      inference0 = (app (lambda (var "x") (var "x")) (int 1))
-      inference1 = (lambda (var "x") (var "x"))
-      inference2 = (lambda (var "x") (plus (var "x") (var "x")))
-      inference3 = (plus (str "abc") (int 2))
-      inference4 = (lambda (var "y")
-                    (lambda (var "x") (plus (var "y") (var "x"))))
-      inference5 = (lambda (var "x") (str "abc"))
-      inference6 = (lambda (var "y") (lambda (var "x") (str "abc")))
-      inference7 =  (lambda (var "a")
-                     (lambda (var "z")
-                      (lambda (var "y") (lambda (var "x") (int 42)))))
-      inference8 = (lambda (var "x") (append (var "x") (var "x")))
-      inference9 = (let_ [("f", (int 1)), ("f", (int 2))]
-                             (plus (var "f") (var "f")))
-      inference10 = (let_ [("f", (lambda (var "x") (var "x")))]
-                     (tuple [(app (var "f") (str "abc")),
-                             (app (var "f") (str "abc"))]))
-      inference11 = (let_ [("f", (lambda (var "x") (var "x")))]
-                            (tuple [(app (var "f") (str "abc")),
-                                    (app (var "f") (int 1))]))
-      inference12 = (builtin "plus" [(int 1), (int 2), (int 3)])
-      inference13 = (app (var "fst") (tuple [(int 1), (int 2), (int 3)]))
-      inference14 = (app (var "fst") (tuple [(int 1), (int 2)]))
+      allTests = [
+       (app (lambda (var "x") (var "x")) (int 1)),
+       (lambda (var "x") (var "x")),
+       (lambda (var "x") (plus (var "x") (var "x"))),
+       (plus (str "abc") (int 2)),
+       (lambda (var "y")
+        (lambda (var "x") (plus (var "y") (var "x")))),
+       (lambda (var "x") (str "abc")),
+       (lambda (var "y") (lambda (var "x") (str "abc"))),
+       (lambda (var "a") (lambda (var "z")
+                          (lambda (var "y") (lambda (var "x") (int 42))))),
+       (lambda (var "x") (append (var "x") (var "x"))),
+       (let_ [("f", (int 1)), ("f", (int 2))]
+        (plus (var "f") (var "f"))),
+       (let_ [("f", (lambda (var "x") (var "x")))]
+        (tuple [(app (var "f") (str "abc")),
+                (app (var "f") (str "abc"))])),
+       (let_ [("f", (lambda (var "x") (var "x")))]
+        (tuple [(app (var "f") (str "abc")),
+                (app (var "f") (int 1))])),
+       (builtin "plus" [(int 1), (int 2), (int 3)]),
+       (app (var "fst") (tuple [(int 1), (int 2), (int 3)])),
+       (app (var "fst") (tuple [(int 1), (int 2)])),
+       (app (var "snd") (tuple [(int 1), (str "2")])),
+       (tuple [(app (var "snd")
+                (tuple [(int 7), (str "8")])),
+               (app (var "fst")
+                (tuple [(bool True), (bool False)]))]),
+       (let_ [("f", (lambda (var "x") (var "x")))]
+                 (tuple [(app (var "f") (int 1)),
+                         (app (var "f") (bool True))])),
+       (tuple [(myLength (list [(int 1), (int 2), (int 3)])),
+               (myLength (list [(str "abc")]))])
+        ]
 
 inferenceExpected :: [String]
 inferenceExpected =
@@ -103,12 +108,14 @@ inferenceExpected =
      "string -> string",
      "Conflicting definitions in let-expression!",
      "(string, string)",
-
-     -- TOFIX: this must be (string, int) after let-polymorphism lands.
+     "(string, int)",
      "Unsolvable constraints",
      "Unsolvable constraints",
-     "Unsolvable constraints",
-     "int"
+     "int",
+     "string",
+     "(string, bool)",
+     "(int, bool)",
+     "(int, int)"
     ]
 
 inferenceTests :: [Test]
