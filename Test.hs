@@ -196,8 +196,9 @@ evaluationExpected =
      "3",
      "23",
      "False",
+     "[65, 66]",
      -- TOFIX
-     "", "", ""
+     "", ""
     ]
 
 evaluationTests :: [Test]

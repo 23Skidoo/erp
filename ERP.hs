@@ -469,11 +469,11 @@ printType ast =
 
 type EvalResult = Either String Value
 type Environment = M.Map String Value
-type BuiltinFun = ([AST] -> Environment -> EvalResult)
+type BuiltinFun = ([Value] -> Environment -> EvalResult)
 
 data Value = VBool Bool | VInt Integer | VStr String | VAbs String AST
            | VList [Value] | VTuple [Value]
-           | VBuiltin String BuiltinFun [AST] Int
+           | VBuiltin String BuiltinFun [Value] Int
 
 instance Eq Value where
     (==) = isEqualV
@@ -534,6 +534,12 @@ fromVList :: Value -> Either String [Value]
 fromVList (VList l) = Right l
 fromVList _         = Left "The value is not a list!"
 
+-- Return something that we can apply with applyVAbs.
+fromVAbs :: Value -> Either String Value
+fromVAbs f@(VAbs _ _)         = Right f
+fromVAbs b@(VBuiltin _ _ _ _) = Right b
+fromVAbs _                    = Left "The value is not a function!"
+
 -- Default environment, pre-populated with builtin functions.
 defaultEnvironment :: Environment
 defaultEnvironment = M.fromList defaultBindings
@@ -556,41 +562,44 @@ builtinFun :: String -> BuiltinFun
 builtinFun name args env
     | name == "plus" =
         do checkArgs 2
-           i1 <- getInt firstArg
-           i2 <- getInt secondArg
+           i1 <- fromVInt firstArg
+           i2 <- fromVInt secondArg
            return . VInt $ i1 + i2
 
     | name == "concat" =
         do checkArgs 2
-           s1 <- getStr firstArg
-           s2 <- getStr secondArg
+           s1 <- fromVStr firstArg
+           s2 <- fromVStr secondArg
            return . VStr $ s1 ++ s2
 
     | name == "intToString" =
         do checkArgs 1
-           i <- getInt firstArg
+           i <- fromVInt firstArg
            return . VStr $ show i
 
     | name == "fst" =
         do checkArgs 1
-           l <- getTuple firstArg
+           l <- fromVTuple firstArg
            checkTupleLength l
            return . head $ l
 
     | name == "snd" =
         do checkArgs 1
-           l <- getTuple firstArg
+           l <- fromVTuple firstArg
            checkTupleLength l
            return . head . tail $ l
 
     | name == "length" =
         do checkArgs 1
-           l <- getList firstArg
+           l <- fromVList firstArg
            return . VInt . toInteger . length $ l
 
     | name == "map" =
         do checkArgs 2
-           fail "Not implemented!"
+           f <- fromVAbs firstArg
+           l <- fromVList secondArg
+           ret <- mapM (applyVAbs env f) l
+           return . VList $ ret
 
     | name == "reduce" =
         do checkArgs 3
@@ -617,11 +626,17 @@ builtinFun name args env
       secondArg = head . tail $ args
       thirdArg  = head . tail . tail $ args
 
-      getBool   e = fromVBool  =<< interpret' env e
-      getInt    e = fromVInt   =<< interpret' env e
-      getStr    e = fromVStr   =<< interpret' env e
-      getTuple  e = fromVTuple =<< interpret' env e
-      getList   e = fromVList  =<< interpret' env e
+-- Given two values, apply the first one to the second iff the first is a
+-- function or a builtin.
+applyVAbs :: Environment -> Value -> Value -> EvalResult
+applyVAbs env (VAbs v b) arg = interpret' (M.insert v arg env) b
+applyVAbs env (VBuiltin n bf args argsRequired) arg =
+    do let newArgs = args ++ [arg]
+       if length newArgs == argsRequired
+           then bf newArgs env
+           else return (VBuiltin n bf newArgs argsRequired)
+
+applyVAbs _ _ _  = Left "Can't perform application!"
 
 interpret' :: Environment -> AST -> EvalResult
 interpret' _ (ABool b)  = Right (VBool b)
@@ -658,20 +673,9 @@ interpret' _ (AAbs v b) =
       _      -> Left "Unknown value in the abstraction parameter list!"
 
 interpret' env (AApp f e) =
-    case interpret' env f of
-      Right (VAbs v b) ->
-          do arg <- interpret' env e
-             interpret' (M.insert v arg env) b
-
-      Right (VBuiltin n bf args argsRequired) ->
-          do let newArgs = args ++ [e]
-             if length newArgs == argsRequired
-                 then bf newArgs env
-                 else return (VBuiltin n bf newArgs argsRequired)
-
-      (Right _)        -> Left "Can't perform application!"
-      l@(Left _)       -> l
-
+    do fun <- interpret' env f
+       arg <- interpret' env e
+       applyVAbs env fun arg
 
 interpret' env (ABuiltin n) = interpret' env (AVar n)
 
