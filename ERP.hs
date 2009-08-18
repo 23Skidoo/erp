@@ -437,13 +437,12 @@ typecheck ast =
     do (t, _) <- typecheck' ast emptyTypingInfo defaultTypingContext
        return t
 
-typecheck_pretty :: AST -> String
-typecheck_pretty ast =
+printType :: AST -> IO ()
+printType ast =
     case typecheck' ast emptyTypingInfo defaultTypingContext
-    of Left l -> error l
-       -- Laziness can be so much fun sometimes...
-       Right (t, ti) -> constrs ti `seq` showType t
-
+    of Left l -> fail l
+       Right (t, _) -> do let s = showType t
+                          putStrLn s
 -- Interpreter.
 ---------------
 
@@ -489,8 +488,7 @@ isEqualV (VList l1) (VList l2)       = sameType l1 && sameType l2
       sameType = and . map (isEqualV headType)
 
 isEqualV (VBuiltin b1 _ _ _) (VBuiltin b2 _ _ _) = (b1 == b2)
--- We assume that the typecheck worked here.
-isEqualV (VAbs _ _) (VAbs _ _)       = True
+isEqualV (VAbs _ _) (VAbs _ _)       = False
 isEqualV _ _                         = False
 
 -- Default environment, pre-populated with builtin functions.
@@ -682,18 +680,18 @@ builtin_app n args = foldl' AApp (builtin n) args
 plus :: AST -> AST -> AST
 plus e1 e2 = AApp (AApp (ABuiltin "plus") e1) e2
 
-myConcat :: AST -> AST -> AST
-myConcat e1 e2 = AApp (AApp (ABuiltin "concat") e1) e2
+concat_ :: AST -> AST -> AST
+concat_ e1 e2 = AApp (AApp (ABuiltin "concat") e1) e2
 
 intToString :: AST -> AST
 intToString e1 = AApp (ABuiltin "intToString") e1
 
-myLength :: AST -> AST
-myLength e1 = AApp (ABuiltin "length") e1
+length_ :: AST -> AST
+length_ e1 = AApp (ABuiltin "length") e1
 
-myFst :: AST -> AST
-myFst e1 = AApp (ABuiltin "fst") e1
+fst_ :: AST -> AST
+fst_ e1 = AApp (ABuiltin "fst") e1
 
-mySnd :: AST -> AST
-mySnd e1 = AApp (ABuiltin "snd") e1
+snd_ :: AST -> AST
+snd_ e1 = AApp (ABuiltin "snd") e1
 

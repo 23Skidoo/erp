@@ -64,7 +64,7 @@ astTests = [
  (lambda (var "y") (lambda (var "x") (str "abc"))),
  (lambda (var "a") (lambda (var "z")
                     (lambda (var "y") (lambda (var "x") (int 42))))),
- (lambda (var "x") (myConcat (var "x") (var "x"))),
+ (lambda (var "x") (concat_ (var "x") (var "x"))),
  (let_ [("f", (int 1)), ("f", (int 2))]
   (plus (var "f") (var "f"))),
  (let_ [("f", (lambda (var "x") (var "x")))]
@@ -84,12 +84,12 @@ astTests = [
  (let_ [("f", (lambda (var "x") (var "x")))]
            (tuple [(app (var "f") (int 1)),
                    (app (var "f") (bool True))])),
- (tuple [(myLength (list [(int 1), (int 2), (int 3)])),
-         (myLength (list [(str "abc")]))]),
+ (tuple [(length_ (list [(int 1), (int 2), (int 3)])),
+         (length_ (list [(str "abc")]))]),
 
- (mySnd (tuple [(var "x"), (int 1)])),
+ (snd_ (tuple [(var "x"), (int 1)])),
  (let_ [("t", (tuple [(bool True), (str "aaa")]))]
-  (tuple [(mySnd (var "t")), (myFst (var "t"))])),
+  (tuple [(snd_ (var "t")), (fst_ (var "t"))])),
 
  (tuple [(int 6), (str "abc")]),
  (tuple [(lambda (var "x") (var "x")), (str "abc")]),
@@ -97,12 +97,13 @@ astTests = [
  (list [(int 1), (int 2), (int 3)]),
  (list [(int 1), (int 2), (str "abc")]),
 
- (myConcat (str "answer: ")
+ (concat_ (str "answer: ")
   (intToString (plus (int 35) (int 7)))),
  (let_ [("f", (lambda (var "x") (var "x")))]
   (app (var "f") (int 1))),
  (builtin_app "plus" [(int 1), (int 2)]),
- (let_ [("f", (app (builtin "plus") (int 1)))] (app (var "f") (int 22)))
+ (let_ [("f", (app (builtin "plus") (int 1)))] (app (var "f") (int 22))),
+ (app (lambda (var "x") (snd_ (var "x"))) (tuple [(int 1), (bool False)]))
     ]
 
 -- Type inference tests.
@@ -142,7 +143,8 @@ inferenceExpected =
      "string",
      "int",
      "int",
-     "int"
+     "int",
+     "bool"
     ]
 
 inferenceTests :: [Test]
@@ -185,7 +187,8 @@ evaluationExpected =
      "\"answer: 42\"",
      "1",
      "3",
-     "23"
+     "23",
+     "False"
     ]
 
 evaluationTests :: [Test]
