@@ -561,6 +561,10 @@ builtinFun name args _
            l <- fromVList firstArg
            return . VInt . toInteger . length $ l
 
+    | name == "reduce" =
+        do checkArgs 3
+           fail "Not implemented!"
+
     | otherwise = fail "Unknown builtin!"
 
     where
@@ -576,6 +580,7 @@ builtinFun name args _
       argsGiven = length args
       firstArg  = head $ args
       secondArg = head . tail $ args
+      thirdArg  = head . tail . tail $ args
 
 interpret' :: Environment -> AST -> EvalResult
 interpret' _ (ABool b)  = Right (VBool b)
@@ -610,22 +615,23 @@ interpret' _ (AAbs v b) =
     case v of
       AVar x -> Right (VAbs x b)
       _      -> Left "Unknown value in the abstraction parameter list!"
+
 interpret' env (AApp f e) =
     case interpret' env f of
       Right (VAbs v b) ->
-          case interpret' env e of
-            Right arg  -> interpret' (M.insert v arg env) b
-            l@(Left _) -> l
+          do arg <- interpret' env e
+             interpret' (M.insert v arg env) b
+
       Right (VBuiltin n bf args argsRequired) ->
-          case interpret' env e of
-            Right arg -> if length newArgs == argsRequired
-                         then bf newArgs env
-                         else return (VBuiltin n bf newArgs argsRequired)
-                          where
-                            newArgs = args ++ [arg]
-            l@(Left _) -> l
+          do arg <- interpret' env e
+             let newArgs = args ++ [arg]
+             if length newArgs == argsRequired
+                 then bf newArgs env
+                 else return (VBuiltin n bf newArgs argsRequired)
+
+      (Right _)        -> Left "Can't perform application!"
       l@(Left _)       -> l
-      _                -> Left "Can't perform application!"
+
 
 interpret' env (ABuiltin n) = interpret' env (AVar n)
 
@@ -695,3 +701,5 @@ fst_ e1 = AApp (ABuiltin "fst") e1
 snd_ :: AST -> AST
 snd_ e1 = AApp (ABuiltin "snd") e1
 
+reduce :: AST -> AST -> AST -> AST
+reduce f v l = (AApp (AApp (AApp (ABuiltin "reduce") f) v) l)
