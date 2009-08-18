@@ -62,7 +62,7 @@ inferenceActual = map (either id showType . typecheck) allTests
       allTests = [inference0, inference1, inference2, inference3,
                   inference4, inference5, inference6, inference7,
                   inference8, inference9, inference10, inference11,
-                  inference12
+                  inference12, inference13, inference14
                  ]
 
       inference0 = (app (lambda (var "x") (var "x")) (int 1))
@@ -86,6 +86,8 @@ inferenceActual = map (either id showType . typecheck) allTests
                             (tuple [(app (var "f") (str "abc")),
                                     (app (var "f") (int 1))]))
       inference12 = (builtin "plus" [(int 1), (int 2), (int 3)])
+      inference13 = (app (var "fst") (tuple [(int 1), (int 2), (int 3)]))
+      inference14 = (app (var "fst") (tuple [(int 1), (int 2)]))
 
 inferenceExpected :: [String]
 inferenceExpected =
@@ -104,7 +106,9 @@ inferenceExpected =
 
      -- TOFIX: this must be (string, int) after let-polymorphism lands.
      "Unsolvable constraints",
-     "Unsolvable constraints"
+     "Unsolvable constraints",
+     "Unsolvable constraints",
+     "int"
     ]
 
 inferenceTests :: [Test]
@@ -114,7 +118,7 @@ inferenceTests = makeListOfTests inferenceActual inferenceExpected
 -------------------
 
 evaluationActual :: [String]
-evaluationActual = map (either id showValue . evaluate) allTests
+evaluationActual = map (either id showValue . interpret) allTests
     where
       allTests = [eval1, eval2, eval3, eval4, eval5, eval6, eval7]
 

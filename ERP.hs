@@ -135,7 +135,8 @@ unify ((STList s1, STList s2):cs) = unify ncs
     where
       ncs = cs ++ [(s1, s2)]
 
-unify ((STTuple els1, STTuple els2):cs) = unify ncs
+unify ((STTuple els1, STTuple els2):cs)
+    | length els1 == length els2 = unify ncs
     where
       ncs = cs ++ (zipWith (,) els1 els2)
 
@@ -153,7 +154,12 @@ emptyTypingContext = foldr (\(k,v) m -> M.insert k v m) M.empty builtinTypes
           [
            ("append", STFun STStr (STFun STStr STStr)),
            ("intToString", STFun STInt STStr),
-           ("plus", STFun STInt (STFun STInt STInt))
+           ("plus", STFun STInt (STFun STInt STInt)),
+
+           -- TODO: implement fst/snd and length
+           ("fst", STFun (STTuple [STInt, STInt]) STInt),
+           ("snd", STFun (STTuple [STInt, STInt]) STInt),
+           ("length", STFun (STList STInt) STInt)
           ]
 
 lookupCtxST :: String -> TypingContext -> Maybe SimpleType
@@ -475,8 +481,13 @@ interpret' env (ABuiltin n args) =
 interpret :: AST -> EvalResult
 interpret e = interpret' emptyEnvironment e
 
-evaluate :: AST -> EvalResult
-evaluate = interpret
+interpret_pretty :: AST -> String
+interpret_pretty e = case interpret e
+                     of (Right v)  -> showValue v
+                        (Left err) -> error err
+
+evaluate :: AST -> String
+evaluate = interpret_pretty
 
 -- "Syntax sugar".
 
