@@ -461,6 +461,18 @@ interpret' env (ABuiltin n args) =
              i <- getInt firstArg
              return . VStr $ show i
 
+      "fst" ->
+          do checkArgs 1
+             fail "Not implemented!"
+
+      "snd" ->
+          do checkArgs 1
+             fail "Not implemented!"
+
+      "length" ->
+          do checkArgs 1
+             fail "Not implemented!"
+
       _ -> fail "Unknown builtin!"
 
     where
