@@ -21,21 +21,17 @@ makeListOfTests actual expected =
 constraintsActual :: [String]
 constraintsActual = map (either id showConstraintSet . unify) allTests
     where
-      allTests = [constraints0, constraints1, constraints2, constraints3,
-                  constraints4, constraints5, constraints6, constraints7]
-
-      constraints0 = [(STBase "X", STInt),
-                      (STBase "Y", STFun (STBase "X") (STBase "X"))]
-      constraints1 = [(STFun STInt STInt,
-                       STFun (STBase "X") (STBase "Y"))]
-      constraints2 = [(STInt, STFun (STInt) (STBase "Y"))]
-      constraints3 = [(STBase "Y", STFun STInt (STBase "Y"))]
-      constraints4 = []
-      constraints5 = [(STFun (STBase "x_0") (STBase "x_0"),
-                       STFun (STBase "x_1") STInt)]
-      constraints6 = [(STFun (STBase "x_0") (STBase "x_0"),
-                       STFun STInt (STBase "x_1"))]
-      constraints7 = [(STStr,STInt),(STInt,STInt)]
+      allTests =
+          [
+           [(STBase "X", STInt),(STBase "Y", STFun (STBase "X") (STBase "X"))],
+           [(STFun STInt STInt, STFun (STBase "X") (STBase "Y"))],
+           [(STInt, STFun (STInt) (STBase "Y"))],
+           [(STBase "Y", STFun STInt (STBase "Y"))],
+           [],
+           [(STFun (STBase "x_0") (STBase "x_0"), STFun (STBase "x_1") STInt)],
+           [(STFun (STBase "x_0") (STBase "x_0"), STFun STInt (STBase "x_1"))],
+           [(STStr,STInt),(STInt,STInt)]
+          ]
 
 constraintsExpected :: [String]
 constraintsExpected =
@@ -53,49 +49,67 @@ constraintsExpected =
 constraintsTests :: [Test]
 constraintsTests = makeListOfTests constraintsActual constraintsExpected
 
+-- Shared test data for inference and evaluation tests.
+-------------------------------------------------------
+
+astTests :: [AST]
+astTests = [
+ (app (lambda (var "x") (var "x")) (int 1)),
+ (lambda (var "x") (var "x")),
+ (lambda (var "x") (plus (var "x") (var "x"))),
+ (plus (str "abc") (int 2)),
+ (lambda (var "y")
+  (lambda (var "x") (plus (var "y") (var "x")))),
+ (lambda (var "x") (str "abc")),
+ (lambda (var "y") (lambda (var "x") (str "abc"))),
+ (lambda (var "a") (lambda (var "z")
+                    (lambda (var "y") (lambda (var "x") (int 42))))),
+ (lambda (var "x") (myConcat (var "x") (var "x"))),
+ (let_ [("f", (int 1)), ("f", (int 2))]
+  (plus (var "f") (var "f"))),
+ (let_ [("f", (lambda (var "x") (var "x")))]
+  (tuple [(app (var "f") (str "abc")),
+          (app (var "f") (str "abc"))])),
+ (let_ [("f", (lambda (var "x") (var "x")))]
+  (tuple [(app (var "f") (str "abc")),
+          (app (var "f") (int 1))])),
+ (builtin_app "plus" [(int 1), (int 2), (int 3)]),
+ (app (var "fst") (tuple [(int 1), (int 2), (int 3)])),
+ (app (var "fst") (tuple [(int 1), (int 2)])),
+ (app (var "snd") (tuple [(int 1), (str "2")])),
+ (tuple [(app (var "snd")
+          (tuple [(int 7), (str "8")])),
+         (app (var "fst")
+          (tuple [(bool True), (bool False)]))]),
+ (let_ [("f", (lambda (var "x") (var "x")))]
+           (tuple [(app (var "f") (int 1)),
+                   (app (var "f") (bool True))])),
+ (tuple [(myLength (list [(int 1), (int 2), (int 3)])),
+         (myLength (list [(str "abc")]))]),
+
+ (mySnd (tuple [(var "x"), (int 1)])),
+ (let_ [("t", (tuple [(bool True), (str "aaa")]))]
+  (tuple [(mySnd (var "t")), (myFst (var "t"))])),
+
+ (tuple [(int 6), (str "abc")]),
+ (tuple [(lambda (var "x") (var "x")), (str "abc")]),
+
+ (list [(int 1), (int 2), (int 3)]),
+ (list [(int 1), (int 2), (str "abc")]),
+
+ (myConcat (str "answer: ")
+  (intToString (plus (int 35) (int 7)))),
+ (let_ [("f", (lambda (var "x") (var "x")))]
+  (app (var "f") (int 1))),
+ (builtin_app "plus" [(int 1), (int 2)]),
+ (let_ [("f", (app (builtin "plus") (int 1)))] (app (var "f") (int 22)))
+    ]
+
 -- Type inference tests.
 ------------------------
 
 inferenceActual :: [String]
-inferenceActual = map (either id showType . typecheck) allTests
-    where
-      allTests = [
-       (app (lambda (var "x") (var "x")) (int 1)),
-       (lambda (var "x") (var "x")),
-       (lambda (var "x") (plus (var "x") (var "x"))),
-       (plus (str "abc") (int 2)),
-       (lambda (var "y")
-        (lambda (var "x") (plus (var "y") (var "x")))),
-       (lambda (var "x") (str "abc")),
-       (lambda (var "y") (lambda (var "x") (str "abc"))),
-       (lambda (var "a") (lambda (var "z")
-                          (lambda (var "y") (lambda (var "x") (int 42))))),
-       (lambda (var "x") (append (var "x") (var "x"))),
-       (let_ [("f", (int 1)), ("f", (int 2))]
-        (plus (var "f") (var "f"))),
-       (let_ [("f", (lambda (var "x") (var "x")))]
-        (tuple [(app (var "f") (str "abc")),
-                (app (var "f") (str "abc"))])),
-       (let_ [("f", (lambda (var "x") (var "x")))]
-        (tuple [(app (var "f") (str "abc")),
-                (app (var "f") (int 1))])),
-       (builtin "plus" [(int 1), (int 2), (int 3)]),
-       (app (var "fst") (tuple [(int 1), (int 2), (int 3)])),
-       (app (var "fst") (tuple [(int 1), (int 2)])),
-       (app (var "snd") (tuple [(int 1), (str "2")])),
-       (tuple [(app (var "snd")
-                (tuple [(int 7), (str "8")])),
-               (app (var "fst")
-                (tuple [(bool True), (bool False)]))]),
-       (let_ [("f", (lambda (var "x") (var "x")))]
-                 (tuple [(app (var "f") (int 1)),
-                         (app (var "f") (bool True))])),
-       (tuple [(myLength (list [(int 1), (int 2), (int 3)])),
-               (myLength (list [(str "abc")]))]),
-       (mySnd (tuple [(var "x"), (int 1)])),
-       (let_ [("t", (tuple [(bool True), (str "aaa")]))]
-        (tuple [(mySnd (var "t")), (myFst (var "t"))]))
-        ]
+inferenceActual = map (either id showType . typecheck) astTests
 
 inferenceExpected :: [String]
 inferenceExpected =
@@ -120,7 +134,15 @@ inferenceExpected =
      "(int, bool)",
      "(int, int)",
      "Unknown variable 'x'!",
-     "(string, bool)"
+     "(string, bool)",
+     "(int, string)",
+     "(x_0 -> x_0, string)",
+     "[int]",
+     "Unsolvable constraints",
+     "string",
+     "int",
+     "int",
+     "int"
     ]
 
 inferenceTests :: [Test]
@@ -130,28 +152,32 @@ inferenceTests = makeListOfTests inferenceActual inferenceExpected
 -------------------
 
 evaluationActual :: [String]
-evaluationActual = map (either id showValue . interpret) allTests
-    where
-      allTests = [
-       (tuple [(int 6), (str "abc")]),
-       (tuple [(lambda (var "x") (var "x")), (str "abc")]),
-       (list [(int 1), (int 2), (int 3)]),
-       (list [(int 1), (int 2), (str "abc")]),
-       (append (str "answer: ")
-        (intToString (plus (int 35) (int 7)))),
-       (let_ [("f", (lambda (var "x") (var "x")))]
-                 (app (var "f") (int 1))),
-       (builtin "plus" [(int 1), (int 2)]),
-       (tuple [(myLength (list [(int 1), (int 2), (int 3)])),
-               (myLength (list [(str "abc")]))]),
-       (let_ [("t", (tuple [(bool True), (str "aaa")]))]
-        (tuple [(mySnd (var "t")), (myFst (var "t"))]))
-        ]
-
+evaluationActual = map (either id showValue . interpret) astTests
 
 evaluationExpected :: [String]
 evaluationExpected =
     [
+     "1",
+     "(\\x -> AVar \"x\")",
+     "(\\x -> AApp (AApp (ABuiltin \"plus\") (AVar \"x\")) (AVar \"x\"))",
+     "The value is not an integer!",
+     "(\\y -> AAbs (AVar \"x\") (AApp (AApp (ABuiltin \"plus\") (AVar \"y\")) (AVar \"x\")))",
+     "(\\x -> AStr \"abc\")",
+     "(\\y -> AAbs (AVar \"x\") (AStr \"abc\"))",
+     "(\\a -> AAbs (AVar \"z\") (AAbs (AVar \"y\") (AAbs (AVar \"x\") (AInt 42))))",
+     "(\\x -> AApp (AApp (ABuiltin \"concat\") (AVar \"x\")) (AVar \"x\"))",
+     "Conflicting definitions in let-expression!",
+     "(\"abc\", \"abc\")",
+     "(\"abc\", 1)",
+     "Can't perform application!",
+     "The tuple must have 2 elements!",
+     "1",
+     "\"2\"",
+     "(\"8\", True)",
+     "(1, True)",
+     "(3, 1)",
+     "Variable 'x' not found in the environment!",
+     "(\"aaa\", True)",
      "(6, \"abc\")",
      "((\\x -> AVar \"x\"), \"abc\")",
      "[1, 2, 3]",
@@ -159,8 +185,7 @@ evaluationExpected =
      "\"answer: 42\"",
      "1",
      "3",
-     "(3, 1)",
-     "(\"aaa\", True)"
+     "23"
     ]
 
 evaluationTests :: [Test]

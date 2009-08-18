@@ -15,7 +15,7 @@ data AST = ABool Bool | AInt Integer | AStr String
          | AVar String | AAbs AST AST | AApp AST AST
          | ATuple [AST] | AList [AST]
          | ALet [Binding] AST
-         | ABuiltin String [AST]
+         | ABuiltin String
            deriving (Eq, Show, Ord)
 
 type ParseResult = Either String AST
@@ -179,15 +179,16 @@ unify ((_, _):_) = fail "Unsolvable constraints"
 -- Typing context.
 type TypingContext = M.Map String Type
 
-standardTypingContext :: TypingContext
-standardTypingContext = M.fromList builtinTypes
+-- Default typing context, pre-populated with types of built-in functions.
+defaultTypingContext :: TypingContext
+defaultTypingContext = M.fromList builtinTypes
     where
       builtinTypes = builtinSimpleTypes ++ builtinTypeSchemes
 
       builtinSimpleTypes = map (id *** (TSimple)) builtinSimpleTypes'
       builtinSimpleTypes' =
           [
-           ("append", STFun STStr (STFun STStr STStr)),
+           ("concat", STFun STStr (STFun STStr STStr)),
            ("intToString", STFun STInt STStr),
            ("plus", STFun STInt (STFun STInt STInt))
           ]
@@ -338,6 +339,20 @@ generalizeType (TSimple st) ti ctx =
        notInContext :: String -> Bool
        notInContext = not . (flip M.member) ctx
 
+-- Check that there are no identically-named bindings in the list.
+checkBindings :: (Monad m) => [Binding] -> m Bool
+checkBindings [] = return True
+checkBindings ((n, _):bs) =
+    if hasEqual n bs
+    then fail "Conflicting definitions in let-expression!"
+    else return True
+    where
+
+      hasEqual :: String -> [Binding] -> Bool
+      hasEqual _ []                       = False
+      hasEqual n' ((n1, _):bs') | n' == n1   = True
+                                | otherwise = hasEqual n bs'
+
 type TypecheckResult = Either String (Type, TypingInfo)
 type BindingTypes = [(String, Type)]
 type InferTypesOfBindingsResult = Either String (TypingInfo, BindingTypes)
@@ -396,9 +411,9 @@ typecheck' (AApp f a) ti ctx  =
 typecheck' (ALet [] body) ti ctx = typecheck' body ti ctx
 
 typecheck' (ALet bindings body) ti ctx  =
-    do check_bindings bindings
+    do checkBindings bindings
        (nti, binding_types) <- inferTypesOfBindings bindings ti
-       let newctx = foldl' (\m e -> uncurry M.insert e m) ctx binding_types
+       let newctx = M.union (M.fromList binding_types) ctx
        typecheck' body nti newctx
     where
 
@@ -411,25 +426,7 @@ typecheck' (ALet bindings body) ti ctx  =
              (nti3, rest) <- inferTypesOfBindings xs nti2
              return (nti3, (n, gent):rest)
 
-      -- Check that there are no identically-named bindings.
-      check_bindings :: (Monad m) => [Binding] -> m Bool
-      check_bindings [] = return True
-      check_bindings ((n, _):bs) =
-          if hasEqual n bs
-          then fail "Conflicting definitions in let-expression!"
-          else return True
-
-      -- Helper function for check_bindings.
-      hasEqual :: String -> [Binding] -> Bool
-      hasEqual _ []                       = False
-      hasEqual n ((n1, _):bs) | n == n1   = True
-                              | otherwise = hasEqual n bs
-
-typecheck' (ABuiltin name args) ti ctx =
-    typecheck' (buildApp (AVar name) args) ti ctx
-    where
-      buildApp f [] = f
-      buildApp f (x:xs) = buildApp (AApp f x) xs
+typecheck' (ABuiltin name) ti ctx = typecheck' (AVar name) ti ctx
 
 typecheck' _ _ _           = Left "Can't typecheck!"
 
@@ -437,21 +434,32 @@ typecheck' _ _ _           = Left "Can't typecheck!"
 
 typecheck :: AST -> Either String Type
 typecheck ast =
-    do (t, _) <- typecheck' ast emptyTypingInfo standardTypingContext
+    do (t, _) <- typecheck' ast emptyTypingInfo defaultTypingContext
        return t
 
 typecheck_pretty :: AST -> String
 typecheck_pretty ast =
-    case typecheck' ast emptyTypingInfo standardTypingContext
+    case typecheck' ast emptyTypingInfo defaultTypingContext
     of Left l -> error l
        -- Laziness can be so much fun sometimes...
        Right (t, ti) -> constrs ti `seq` showType t
 
 -- Interpreter.
 ---------------
+
+type EvalResult = Either String Value
+type Environment = M.Map String Value
+type BuiltinFun = ([Value] -> Environment -> EvalResult)
+
 data Value = VBool Bool | VInt Integer | VStr String | VAbs String AST
            | VList [Value] | VTuple [Value]
-             deriving (Eq, Show, Ord)
+           | VBuiltin String BuiltinFun [Value] Int
+
+instance Eq Value where
+    (==) = isEqualV
+
+instance Show Value where
+    show = showValue
 
 showValueList :: [Value] -> String
 showValueList = concat . intersperse ", " . map showValue
@@ -463,6 +471,11 @@ showValue (VStr s)   = show s
 showValue (VList l)  = "[" ++ showValueList l ++ "]"
 showValue (VTuple l) = "(" ++ showValueList l ++ ")"
 showValue (VAbs v b) = ("(\\" ++ v ++ " -> " ++ show b ++ ")")
+showValue (VBuiltin n _ args _) =
+    let baseName = "(built-in function \"" ++ n ++ "\")"
+    in if (length args) > 0
+       then baseName ++ " partially applied to " ++ show args
+       else baseName
 
 -- Are runtime 'types' of these values equal?
 isEqualV :: Value -> Value -> Bool
@@ -475,15 +488,24 @@ isEqualV (VList l1) (VList l2)       = sameType l1 && sameType l2
       headType = head l1
       sameType = and . map (isEqualV headType)
 
+isEqualV (VBuiltin b1 _ _ _) (VBuiltin b2 _ _ _) = (b1 == b2)
 -- We assume that the typecheck worked here.
 isEqualV (VAbs _ _) (VAbs _ _)       = True
 isEqualV _ _                         = False
 
-type Environment = M.Map String Value
-type EvalResult  = Either String Value
-
-emptyEnvironment :: Environment
-emptyEnvironment = M.empty
+-- Default environment, pre-populated with builtin functions.
+defaultEnvironment :: Environment
+defaultEnvironment = M.fromList defaultBindings
+    where
+      defaultBindings =
+          [
+           ("concat", makeBuiltin "concat" 2),
+           ("intToString", makeBuiltin "intToString" 1),
+           ("plus", makeBuiltin "plus" 2),
+           ("fst", makeBuiltin "fst" 1),
+           ("snd", makeBuiltin "snd" 1),
+           ("length", makeBuiltin "length" 1)
+          ]
 
 fromVInt :: Value -> Either String Integer
 fromVInt (VInt i) = Right i
@@ -500,6 +522,62 @@ fromVTuple _          = Left "The value is not an tuple!"
 fromVList :: Value -> Either String [Value]
 fromVList (VList l) = Right l
 fromVList _         = Left "The value is not a list!"
+
+makeBuiltin :: String -> Int -> Value
+makeBuiltin name argsReq = let f = builtinFun name
+                           in (VBuiltin name f [] argsReq)
+
+builtinFun :: String -> BuiltinFun
+builtinFun name args _
+    | name == "plus" =
+        do checkArgs 2
+           i1 <- fromVInt firstArg
+           i2 <- fromVInt secondArg
+           return . VInt $ i1 + i2
+
+    | name == "concat" =
+        do checkArgs 2
+           s1 <- fromVStr firstArg
+           s2 <- fromVStr secondArg
+           return . VStr $ s1 ++ s2
+
+    | name == "intToString" =
+        do checkArgs 1
+           i <- fromVInt firstArg
+           return . VStr $ show i
+
+    | name == "fst" =
+        do checkArgs 1
+           l <- fromVTuple firstArg
+           checkTupleLength l
+           return . head $ l
+
+    | name == "snd" =
+        do checkArgs 1
+           l <- fromVTuple firstArg
+           checkTupleLength l
+           return . head . tail $ l
+
+    | name == "length" =
+        do checkArgs 1
+           l <- fromVList firstArg
+           return . VInt . toInteger . length $ l
+
+    | otherwise = fail "Unknown builtin!"
+
+    where
+      checkArgs argsNeeded =
+          if argsGiven == argsNeeded
+          then return True
+          else fail ("'" ++ name ++ "' takes " ++ show argsNeeded ++
+                     " arguments, but was called with " ++ show argsGiven ++ "!")
+
+      checkTupleLength l =
+          when (length l /= 2) (fail "The tuple must have 2 elements!")
+
+      argsGiven = length args
+      firstArg  = head $ args
+      secondArg = head . tail $ args
 
 interpret' :: Environment -> AST -> EvalResult
 interpret' _ (ABool b)  = Right (VBool b)
@@ -523,10 +601,12 @@ interpret' env (ATuple els) = do values <- sequence . map (interpret' env) $ els
 
 interpret' env (ALet [] body) = interpret' env body
 
-interpret' env (ALet ((name, val):xs) body) =
-    do valEval <- interpret' env val
-       let newEnv = (M.insert name valEval env)
-       interpret' newEnv (ALet xs body)
+interpret' env (ALet bindings body) =
+    do checkBindings bindings
+       vals <- mapM (interpret' env) (map snd bindings)
+       let letEnv = M.fromList . zipWith (,) (map fst bindings) $ vals
+       let newEnv = (M.union letEnv env)
+       interpret' newEnv body
 
 interpret' _ (AAbs v b) =
     case v of
@@ -538,77 +618,31 @@ interpret' env (AApp f e) =
           case interpret' env e of
             Right arg  -> interpret' (M.insert v arg env) b
             l@(Left _) -> l
+      Right (VBuiltin n bf args argsRequired) ->
+          case interpret' env e of
+            Right arg -> if length newArgs == argsRequired
+                         then bf newArgs env
+                         else return (VBuiltin n bf newArgs argsRequired)
+                          where
+                            newArgs = args ++ [arg]
+            l@(Left _) -> l
       l@(Left _)       -> l
       _                -> Left "Can't perform application!"
 
-interpret' env (ABuiltin n args) =
-    case n of
-      "plus"        ->
-          do checkArgs 2
-             i1 <- getInt firstArg
-             i2 <- getInt secondArg
-             return . VInt $ i1 + i2
-
-      "append"      ->
-          do checkArgs 2
-             s1 <- getStr firstArg
-             s2 <- getStr secondArg
-             return . VStr $ s1 ++ s2
-
-      "intToString" ->
-          do checkArgs 1
-             i <- getInt firstArg
-             return . VStr $ show i
-
-      "fst" ->
-          do checkArgs 1
-             l <- getTuple firstArg
-             checkTupleLength l
-             return . head $ l
-
-      "snd" ->
-          do checkArgs 1
-             l <- getTuple firstArg
-             checkTupleLength l
-             return . head . tail $ l
-
-      "length" ->
-          do checkArgs 1
-             l <- getList firstArg
-             return . VInt . toInteger . length $ l
-
-      _ -> fail "Unknown builtin!"
-
-    where
-      checkArgs argsNeeded =
-          if argsGiven == argsNeeded
-          then return True
-          else fail ("'" ++ n ++ "' takes " ++ show argsNeeded ++
-                     " arguments, but was called with " ++ show argsGiven ++ "!")
-
-      checkTupleLength l =
-          when (length l /= 2) (fail "The tuple must have 2 elements!")
-
-      argsGiven = length args
-      firstArg  = head $ args
-      secondArg = head . tail $ args
-
-      getInt e   = fromVInt =<< interpret' env e
-      getStr e   = fromVStr =<< interpret' env e
-      getTuple e = fromVTuple =<< interpret' env e
-      getList e  = fromVList =<< interpret' env e
+interpret' env (ABuiltin n) = interpret' env (AVar n)
 
 -- Client interface.
 interpret :: AST -> EvalResult
-interpret e = interpret' emptyEnvironment e
+interpret e = interpret' defaultEnvironment e
 
 interpret_pretty :: AST -> String
 interpret_pretty e = case interpret e
                      of (Right v)  -> showValue v
                         (Left err) -> error err
 
-evaluate :: AST -> String
-evaluate = interpret_pretty
+evaluate :: AST -> IO ()
+evaluate ast = do let output = interpret_pretty ast
+                  putStrLn output
 
 -- "Syntax sugar".
 
@@ -639,24 +673,27 @@ list e = AList e
 tuple :: [AST] -> AST
 tuple e = ATuple e
 
-builtin :: String -> [AST] -> AST
-builtin n args = ABuiltin n args
+builtin :: String -> AST
+builtin = ABuiltin
+
+builtin_app :: String -> [AST] -> AST
+builtin_app n args = foldl' AApp (builtin n) args
 
 plus :: AST -> AST -> AST
-plus e1 e2 = ABuiltin "plus" [e1, e2]
+plus e1 e2 = AApp (AApp (ABuiltin "plus") e1) e2
 
-append :: AST -> AST -> AST
-append e1 e2 = ABuiltin "append" [e1, e2]
+myConcat :: AST -> AST -> AST
+myConcat e1 e2 = AApp (AApp (ABuiltin "concat") e1) e2
 
 intToString :: AST -> AST
-intToString e1 = ABuiltin "intToString" [e1]
+intToString e1 = AApp (ABuiltin "intToString") e1
 
 myLength :: AST -> AST
-myLength e1 = ABuiltin "length" [e1]
+myLength e1 = AApp (ABuiltin "length") e1
 
 myFst :: AST -> AST
-myFst e1 = ABuiltin "fst" [e1]
+myFst e1 = AApp (ABuiltin "fst") e1
 
 mySnd :: AST -> AST
-mySnd e1 = ABuiltin "snd" [e1]
+mySnd e1 = AApp (ABuiltin "snd") e1
 
