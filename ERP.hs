@@ -469,11 +469,11 @@ printType ast =
 
 type EvalResult = Either String Value
 type Environment = M.Map String Value
-type BuiltinFun = ([Value] -> Environment -> EvalResult)
+type BuiltinFun = ([AST] -> Environment -> EvalResult)
 
 data Value = VBool Bool | VInt Integer | VStr String | VAbs String AST
            | VList [Value] | VTuple [Value]
-           | VBuiltin String BuiltinFun [Value] Int
+           | VBuiltin String BuiltinFun [AST] Int
 
 instance Eq Value where
     (==) = isEqualV
@@ -513,6 +513,11 @@ isEqualV (VAbs _ _) (VAbs _ _)       = False
 isEqualV _ _                         = False
 
 -- Helper functions that extract underlying values from the Value type.
+
+fromVBool :: Value -> Either String Bool
+fromVBool (VBool b) = Right b
+fromVBool _         = Left "The value is not a boolean!"
+
 fromVInt :: Value -> Either String Integer
 fromVInt (VInt i) = Right i
 fromVInt _        = Left "The value is not an integer!"
@@ -548,39 +553,39 @@ makeBuiltin name argsReq = let f = builtinFun name
                            in (name, (VBuiltin name f [] argsReq))
 
 builtinFun :: String -> BuiltinFun
-builtinFun name args _
+builtinFun name args env
     | name == "plus" =
         do checkArgs 2
-           i1 <- fromVInt firstArg
-           i2 <- fromVInt secondArg
+           i1 <- getInt firstArg
+           i2 <- getInt secondArg
            return . VInt $ i1 + i2
 
     | name == "concat" =
         do checkArgs 2
-           s1 <- fromVStr firstArg
-           s2 <- fromVStr secondArg
+           s1 <- getStr firstArg
+           s2 <- getStr secondArg
            return . VStr $ s1 ++ s2
 
     | name == "intToString" =
         do checkArgs 1
-           i <- fromVInt firstArg
+           i <- getInt firstArg
            return . VStr $ show i
 
     | name == "fst" =
         do checkArgs 1
-           l <- fromVTuple firstArg
+           l <- getTuple firstArg
            checkTupleLength l
            return . head $ l
 
     | name == "snd" =
         do checkArgs 1
-           l <- fromVTuple firstArg
+           l <- getTuple firstArg
            checkTupleLength l
            return . head . tail $ l
 
     | name == "length" =
         do checkArgs 1
-           l <- fromVList firstArg
+           l <- getList firstArg
            return . VInt . toInteger . length $ l
 
     | name == "map" =
@@ -611,6 +616,12 @@ builtinFun name args _
       firstArg  = head $ args
       secondArg = head . tail $ args
       thirdArg  = head . tail . tail $ args
+
+      getBool   e = fromVBool  =<< interpret' env e
+      getInt    e = fromVInt   =<< interpret' env e
+      getStr    e = fromVStr   =<< interpret' env e
+      getTuple  e = fromVTuple =<< interpret' env e
+      getList   e = fromVList  =<< interpret' env e
 
 interpret' :: Environment -> AST -> EvalResult
 interpret' _ (ABool b)  = Right (VBool b)
@@ -653,8 +664,7 @@ interpret' env (AApp f e) =
              interpret' (M.insert v arg env) b
 
       Right (VBuiltin n bf args argsRequired) ->
-          do arg <- interpret' env e
-             let newArgs = args ++ [arg]
+          do let newArgs = args ++ [e]
              if length newArgs == argsRequired
                  then bf newArgs env
                  else return (VBuiltin n bf newArgs argsRequired)
