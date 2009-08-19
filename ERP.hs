@@ -192,7 +192,10 @@ defaultTypingContext = M.fromList builtinTypes
           [
            ("concat", STFun STStr (STFun STStr STStr)),
            ("intToString", STFun STInt STStr),
-           ("plus", STFun STInt (STFun STInt STInt))
+           ("plus", STFun STInt (STFun STInt STInt)),
+           ("boolEq", STFun STBool (STFun STBool STBool)),
+           ("intEq", STFun STInt (STFun STInt STBool)),
+           ("strEq", STFun STStr (STFun STStr STBool))
           ]
 
       builtinTypeSchemes = map (id *** (TScheme)) builtinTypeSchemes'
@@ -552,7 +555,8 @@ defaultEnvironment = M.fromList defaultBindings
                            ("plus", 2), ("fst", 1),
                            ("snd", 1), ("length", 1),
                            ("map", 2), ("reduce", 3),
-                           ("filter", 2)
+                           ("filter", 2), ("boolEq", 2),
+                           ("intEq", 2), ("strEq", 2)
                          ]
 
 makeBuiltin :: String -> Int -> (String, Value)
@@ -615,6 +619,24 @@ builtinFun name args env
     | name == "filter" =
         do checkArgs 2
            fail "Not implemented!"
+
+    | name == "boolEq" =
+        do checkArgs 2
+           b1 <- fromVBool firstArg
+           b2 <- fromVBool secondArg
+           return . VBool $ b1 == b2
+
+    | name == "intEq" =
+        do checkArgs 2
+           i1 <- fromVInt firstArg
+           i2 <- fromVInt secondArg
+           return . VBool $ i1 == i2
+
+    | name == "strEq" =
+        do checkArgs 2
+           s1 <- fromVStr firstArg
+           s2 <- fromVStr secondArg
+           return . VBool $ s1 == s2
 
     | otherwise = fail "Unknown builtin!"
 
@@ -737,6 +759,15 @@ builtin = ABuiltin
 
 builtin_app :: String -> [AST] -> AST
 builtin_app n args = foldl' AApp (builtin n) args
+
+boolEq :: AST -> AST -> AST
+boolEq b1 b2 = AApp (AApp (ABuiltin "boolEq") b1) b2
+
+intEq :: AST -> AST -> AST
+intEq i1 i2 = AApp (AApp (ABuiltin "intEq") i1) i2
+
+strEq :: AST -> AST -> AST
+strEq s1 s2 = AApp (AApp (ABuiltin "strEq") s1) s2
 
 plus :: AST -> AST -> AST
 plus e1 e2 = AApp (AApp (ABuiltin "plus") e1) e2

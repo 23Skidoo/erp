@@ -110,7 +110,10 @@ astTests = [
              (int 0) (list [(int 1), (int 2), (int 3)])),
  (reduce (var "plus") (int 993) (list [(int 1), (int 2), (int 3)])),
  (app (app (lambda (var "x") (lambda (var "y")
-                              (plus (var "x") (var "y")))) (int 1)) (int 2))
+                              (plus (var "x") (var "y")))) (int 1)) (int 2)),
+ (boolEq (bool True) (app (lambda (var "x") (var "x")) (bool True))),
+ (intEq (int 23) (int 23)),
+ (strEq (str "abc") (str "abc"))
     ]
 
 -- Type inference tests.
@@ -156,7 +159,10 @@ inferenceExpected =
      "[string]",
      "int",
      "int",
-     "int"
+     "int",
+     "bool",
+     "bool",
+     "bool"
     ]
 
 inferenceTests :: [Test]
@@ -205,7 +211,10 @@ evaluationExpected =
      "TODO: filter",
      "6",
      "999",
-     "3"
+     "3",
+     "True",
+     "True",
+     "True"
     ]
 
 evaluationTests :: [Test]
