@@ -643,7 +643,11 @@ builtinFun name args env
 
     | name == "filter" =
         do checkArgs 2
-           fail "Not implemented!"
+           f <- fromClosure firstArg
+           l <- fromVList secondArg
+           let filterFun = (\e -> fromVBool =<< applyClosure env f e)
+           ret <- filterM filterFun l
+           return . VList $ ret
 
     | otherwise = fail "Unknown builtin!"
 

@@ -105,7 +105,8 @@ astTests = [
  (let_ [("f", (app (builtin "plus") (int 1)))] (app (var "f") (int 22))),
  (app (lambda (var "x") (snd_ (var "x"))) (tuple [(int 1), (bool False)])),
  (map_ (lambda (var "x") (plus (var "x") (int 64))) (list [(int 1), (int 2)])),
- (filter_ (lambda (var "y") (bool False)) (list [(str "abc"), (str "def")])),
+ (filter_ (app (var "strEq") (str "abc"))
+              (list [(str "abc"), (str "def"), (str "abc")])),
  (reduce (lambda (var "x") (lambda (var "y") (plus (var "x") (var "y"))))
              (int 0) (list [(int 1), (int 2), (int 3)])),
  (reduce (var "plus") (int 993) (list [(int 1), (int 2), (int 3)])),
@@ -212,7 +213,7 @@ evaluationExpected =
      "23",
      "False",
      "[65, 66]",
-     "TODO: filter",
+     "[\"abc\", \"abc\"]",
      "6",
      "999",
      "3",
