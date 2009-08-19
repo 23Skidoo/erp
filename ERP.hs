@@ -190,12 +190,13 @@ defaultTypingContext = M.fromList builtinTypes
       builtinSimpleTypes = map (id *** (TSimple)) builtinSimpleTypes'
       builtinSimpleTypes' =
           [
-           ("concat", STFun STStr (STFun STStr STStr)),
-           ("intToString", STFun STInt STStr),
-           ("plus", STFun STInt (STFun STInt STInt)),
+           ("id", STFun (STBase "a") (STBase "a")),
            ("boolEq", STFun STBool (STFun STBool STBool)),
            ("intEq", STFun STInt (STFun STInt STBool)),
-           ("strEq", STFun STStr (STFun STStr STBool))
+           ("strEq", STFun STStr (STFun STStr STBool)),
+           ("concat", STFun STStr (STFun STStr STStr)),
+           ("intToString", STFun STInt STStr),
+           ("plus", STFun STInt (STFun STInt STInt))
           ]
 
       builtinTypeSchemes = map (id *** (TScheme)) builtinTypeSchemes'
@@ -551,12 +552,13 @@ defaultEnvironment = M.fromList defaultBindings
       defaultBindings :: [(String, Value)]
       defaultBindings = map (uncurry makeBuiltin) defaultBindings'
 
-      defaultBindings' = [ ("concat", 2), ("intToString", 1),
+      defaultBindings' = [ ("boolEq", 2), ("intEq", 2),
+                           ("strEq", 2), ("id", 1),
+                           ("concat", 2), ("intToString", 1),
                            ("plus", 2), ("fst", 1),
                            ("snd", 1), ("length", 1),
                            ("map", 2), ("reduce", 3),
-                           ("filter", 2), ("boolEq", 2),
-                           ("intEq", 2), ("strEq", 2)
+                           ("filter", 2)
                          ]
 
 makeBuiltin :: String -> Int -> (String, Value)
@@ -565,6 +567,29 @@ makeBuiltin name argsReq = let f = builtinFun name
 
 builtinFun :: String -> BuiltinFun
 builtinFun name args env
+
+    | name == "id" =
+        do checkArgs 1
+           return firstArg
+
+    | name == "boolEq" =
+        do checkArgs 2
+           b1 <- fromVBool firstArg
+           b2 <- fromVBool secondArg
+           return . VBool $ b1 == b2
+
+    | name == "intEq" =
+        do checkArgs 2
+           i1 <- fromVInt firstArg
+           i2 <- fromVInt secondArg
+           return . VBool $ i1 == i2
+
+    | name == "strEq" =
+        do checkArgs 2
+           s1 <- fromVStr firstArg
+           s2 <- fromVStr secondArg
+           return . VBool $ s1 == s2
+
     | name == "plus" =
         do checkArgs 2
            i1 <- fromVInt firstArg
@@ -619,24 +644,6 @@ builtinFun name args env
     | name == "filter" =
         do checkArgs 2
            fail "Not implemented!"
-
-    | name == "boolEq" =
-        do checkArgs 2
-           b1 <- fromVBool firstArg
-           b2 <- fromVBool secondArg
-           return . VBool $ b1 == b2
-
-    | name == "intEq" =
-        do checkArgs 2
-           i1 <- fromVInt firstArg
-           i2 <- fromVInt secondArg
-           return . VBool $ i1 == i2
-
-    | name == "strEq" =
-        do checkArgs 2
-           s1 <- fromVStr firstArg
-           s2 <- fromVStr secondArg
-           return . VBool $ s1 == s2
 
     | otherwise = fail "Unknown builtin!"
 
@@ -759,6 +766,9 @@ builtin = ABuiltin
 
 builtinApp :: String -> [AST] -> AST
 builtinApp n args = foldl' AApp (builtin n) args
+
+id_ :: AST -> AST
+id_ x = AApp (ABuiltin "id") x
 
 boolEq :: AST -> AST -> AST
 boolEq b1 b2 = AApp (AApp (ABuiltin "boolEq") b1) b2

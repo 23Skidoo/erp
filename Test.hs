@@ -113,7 +113,9 @@ astTests = [
                               (plus (var "x") (var "y")))) (int 1)) (int 2)),
  (boolEq (bool True) (app (lambda (var "x") (var "x")) (bool True))),
  (intEq (int 23) (int 23)),
- (strEq (str "abc") (str "abc"))
+ (strEq (str "abc") (str "abc")),
+ (var "id"),
+ (map_ (var "id") (list [(int 1), (int 2), (int 3)]))
     ]
 
 -- Type inference tests.
@@ -162,7 +164,9 @@ inferenceExpected =
      "int",
      "bool",
      "bool",
-     "bool"
+     "bool",
+     "a -> a",
+     "[int]"
     ]
 
 inferenceTests :: [Test]
@@ -214,7 +218,9 @@ evaluationExpected =
      "3",
      "True",
      "True",
-     "True"
+     "True",
+     "(built-in function \"id\")",
+     "[1, 2, 3]"
     ]
 
 evaluationTests :: [Test]
