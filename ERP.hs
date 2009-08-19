@@ -15,6 +15,7 @@ data AST = ABool Bool | AInt Integer | AStr String
          | AVar String | AAbs AST AST | AApp AST AST
          | ATuple [AST] | AList [AST]
          | ALet [Binding] AST
+         | AIfThenElse AST AST AST
          | ABuiltin String
            deriving (Eq, Show, Ord)
 
@@ -451,6 +452,15 @@ typecheck' (ALet bindings body) ti ctx  =
              (nti3, rest) <- inferTypesOfBindings xs nti2
              return (nti3, (n, gent):rest)
 
+typecheck' (AIfThenElse cond br1 br2) ti ctx =
+    do (tcond, nti) <- getSimpleType cond ti ctx
+       (tbr1, nti1) <- getSimpleType br1 nti ctx
+       (tbr2, nti2) <- getSimpleType br2 nti1 ctx
+       let ifConstrs = [(tcond, STBool), (tbr1, tbr2)]
+       let nti3 = insertConstrs ifConstrs nti2
+       nti4 <- unifyConstrs nti3
+       return (inferType nti4 tbr1, nti4)
+
 typecheck' (ABuiltin name) ti ctx = typecheck' (AVar name) ti ctx
 
 typecheck' _ _ _           = Left "Can't typecheck!"
@@ -700,6 +710,11 @@ interpret' env (ATuple els) = do values <- sequence . map (interpret' env) $ els
                                  return . VTuple $ values
 
 interpret' env (ALet [] body) = interpret' env body
+interpret' env (AIfThenElse cond br1 br2)
+    = do cond' <- fromVBool =<< interpret' env cond
+         if cond'
+             then interpret' env br1
+             else interpret' env br2
 
 interpret' env (ALet bindings body) =
     do checkBindings bindings
@@ -758,6 +773,9 @@ app f e = AApp f e
 
 let_ :: [(String, AST)] -> AST -> AST
 let_ bindings body = ALet bindings body
+
+ifThenElse :: AST -> AST -> AST -> AST
+ifThenElse cond br1 br2 = AIfThenElse cond br1 br2
 
 list :: [AST] -> AST
 list e = AList e

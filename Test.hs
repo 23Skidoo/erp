@@ -116,7 +116,12 @@ astTests = [
  (intEq (int 23) (int 23)),
  (strEq (str "abc") (str "abc")),
  (var "id"),
- (map_ (var "id") (list [(int 1), (int 2), (int 3)]))
+ (map_ (var "id") (list [(int 1), (int 2), (int 3)])),
+ (ifThenElse (bool True) (str "abc") (str "bcd")),
+ (ifThenElse (str "abc") (str "abc") (str "bcd")),
+ (ifThenElse (strEq (str "abc") (str "bcd")) (bool True) (int 1)),
+ (ifThenElse (strEq (str "abc") (str "bcd"))
+                 (bool True) (app (var "id") (bool False)))
     ]
 
 -- Type inference tests.
@@ -167,7 +172,11 @@ inferenceExpected =
      "bool",
      "bool",
      "a -> a",
-     "[int]"
+     "[int]",
+     "string",
+     "Unsolvable constraints",
+     "Unsolvable constraints",
+     "bool"
     ]
 
 inferenceTests :: [Test]
@@ -221,7 +230,11 @@ evaluationExpected =
      "True",
      "True",
      "(built-in function \"id\")",
-     "[1, 2, 3]"
+     "[1, 2, 3]",
+     "\"abc\"",
+     "The value is not a boolean!",
+     "1",
+     "False"
     ]
 
 evaluationTests :: [Test]
