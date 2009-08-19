@@ -107,7 +107,10 @@ astTests = [
  (map_ (lambda (var "x") (plus (var "x") (int 64))) (list [(int 1), (int 2)])),
  (filter_ (lambda (var "y") (bool False)) (list [(str "abc"), (str "def")])),
  (reduce (lambda (var "x") (lambda (var "y") (plus (var "x") (var "y"))))
-             (int 0) (list [(int 1), (int 2), (int 3)]))
+             (int 0) (list [(int 1), (int 2), (int 3)])),
+ (reduce (var "plus") (int 993) (list [(int 1), (int 2), (int 3)])),
+ (app (app (lambda (var "x") (lambda (var "y")
+                              (plus (var "x") (var "y")))) (int 1)) (int 2))
     ]
 
 -- Type inference tests.
@@ -151,6 +154,8 @@ inferenceExpected =
      "bool",
      "[int]",
      "[string]",
+     "int",
+     "int",
      "int"
     ]
 
@@ -197,8 +202,10 @@ evaluationExpected =
      "23",
      "False",
      "[65, 66]",
-     -- TOFIX
-     "", ""
+     "TODO: filter",
+     "6",
+     "999",
+     "3"
     ]
 
 evaluationTests :: [Test]

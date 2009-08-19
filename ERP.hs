@@ -471,7 +471,8 @@ type EvalResult = Either String Value
 type Environment = M.Map String Value
 type BuiltinFun = ([Value] -> Environment -> EvalResult)
 
-data Value = VBool Bool | VInt Integer | VStr String | VAbs String AST
+data Value = VBool Bool | VInt Integer | VStr String
+           | VClosure String Environment AST
            | VList [Value] | VTuple [Value]
            | VBuiltin String BuiltinFun [Value] Int
 
@@ -490,7 +491,7 @@ showValue (VInt i)   = show i
 showValue (VStr s)   = show s
 showValue (VList l)  = "[" ++ showValueList l ++ "]"
 showValue (VTuple l) = "(" ++ showValueList l ++ ")"
-showValue (VAbs v b) = ("(\\" ++ v ++ " -> " ++ show b ++ ")")
+showValue (VClosure v _ b) = ("(\\" ++ v ++ " -> " ++ show b ++ ")")
 showValue (VBuiltin n _ args _) =
     let baseName = "(built-in function \"" ++ n ++ "\")"
     in if (length args) > 0
@@ -509,8 +510,8 @@ isEqualV (VList l1) (VList l2)       = sameType l1 && sameType l2
       sameType = and . map (isEqualV headType)
 
 isEqualV (VBuiltin b1 _ _ _) (VBuiltin b2 _ _ _) = (b1 == b2)
-isEqualV (VAbs _ _) (VAbs _ _)       = False
-isEqualV _ _                         = False
+isEqualV (VClosure _ _ _) (VClosure _ _ _)       = False
+isEqualV _ _                                     = False
 
 -- Helper functions that extract underlying values from the Value type.
 
@@ -534,11 +535,11 @@ fromVList :: Value -> Either String [Value]
 fromVList (VList l) = Right l
 fromVList _         = Left "The value is not a list!"
 
--- Return something that we can apply with applyVAbs.
-fromVAbs :: Value -> Either String Value
-fromVAbs f@(VAbs _ _)         = Right f
-fromVAbs b@(VBuiltin _ _ _ _) = Right b
-fromVAbs _                    = Left "The value is not a function!"
+-- Return a closure that we can apply with applyClosure.
+fromClosure :: Value -> Either String Value
+fromClosure c@(VClosure _ _ _)   = Right c
+fromClosure b@(VBuiltin _ _ _ _) = Right b
+fromClosure _                    = Left "The value is not a function!"
 
 -- Default environment, pre-populated with builtin functions.
 defaultEnvironment :: Environment
@@ -596,14 +597,20 @@ builtinFun name args env
 
     | name == "map" =
         do checkArgs 2
-           f <- fromVAbs firstArg
+           f <- fromClosure firstArg
            l <- fromVList secondArg
-           ret <- mapM (applyVAbs env f) l
+           ret <- mapM (applyClosure env f) l
            return . VList $ ret
 
     | name == "reduce" =
         do checkArgs 3
-           fail "Not implemented!"
+           f <- fromClosure firstArg
+           let v = secondArg
+           l <- fromVList thirdArg
+           let foldFun = (\s e -> do cl1 <- applyClosure env f s
+                                     applyClosure env cl1 e)
+           ret <- foldM foldFun v l
+           return ret
 
     | name == "filter" =
         do checkArgs 2
@@ -626,17 +633,18 @@ builtinFun name args env
       secondArg = head . tail $ args
       thirdArg  = head . tail . tail $ args
 
--- Given two values, apply the first one to the second iff the first is a
--- function or a builtin.
-applyVAbs :: Environment -> Value -> Value -> EvalResult
-applyVAbs env (VAbs v b) arg = interpret' (M.insert v arg env) b
-applyVAbs env (VBuiltin n bf args argsRequired) arg =
+-- Given a closure and a value, apply the former to the latter, and return the
+-- result.
+applyClosure :: Environment -> Value -> Value -> EvalResult
+applyClosure _ (VClosure v e b) arg = interpret' (M.insert v arg e) b
+
+applyClosure env (VBuiltin n bf args argsRequired) arg =
     do let newArgs = args ++ [arg]
        if length newArgs == argsRequired
            then bf newArgs env
            else return (VBuiltin n bf newArgs argsRequired)
 
-applyVAbs _ _ _  = Left "Can't perform application!"
+applyClosure _ _ _  = Left "Can't perform application!"
 
 interpret' :: Environment -> AST -> EvalResult
 interpret' _ (ABool b)  = Right (VBool b)
@@ -667,15 +675,15 @@ interpret' env (ALet bindings body) =
        let newEnv = (M.union letEnv env)
        interpret' newEnv body
 
-interpret' _ (AAbs v b) =
+interpret' env (AAbs v b) =
     case v of
-      AVar x -> Right (VAbs x b)
-      _      -> Left "Unknown value in the abstraction parameter list!"
+      AVar x -> return (VClosure x env b)
+      _      -> fail "Unknown value in the abstraction parameter list!"
 
 interpret' env (AApp f e) =
     do fun <- interpret' env f
        arg <- interpret' env e
-       applyVAbs env fun arg
+       applyClosure env fun arg
 
 interpret' env (ABuiltin n) = interpret' env (AVar n)
 
@@ -691,6 +699,9 @@ interpret_pretty e = case interpret e
 evaluate :: AST -> IO ()
 evaluate ast = do let output = interpret_pretty ast
                   putStrLn output
+
+printResult :: AST -> IO ()
+printResult = evaluate
 
 -- "Syntax sugar".
 
