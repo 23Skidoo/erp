@@ -1,3 +1,6 @@
-- Let-polymorphism.
+- filter.
+- if-then-else.
+- concatMap.
+- guard.
 - List comprehensions.
-- Reduce.
+
