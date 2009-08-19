@@ -197,7 +197,9 @@ defaultTypingContext = M.fromList builtinTypes
            ("strEq", STFun STStr (STFun STStr STBool)),
            ("concat", STFun STStr (STFun STStr STStr)),
            ("intToString", STFun STInt STStr),
-           ("plus", STFun STInt (STFun STInt STInt))
+           ("plus", STFun STInt (STFun STInt STInt)),
+           ("owners", STList (STTuple [STStr, STInt])),
+           ("accounts", STList (STTuple [STInt, STInt]))
           ]
 
       builtinTypeSchemes = map (id *** (TScheme)) builtinTypeSchemes'
@@ -565,16 +567,34 @@ defaultEnvironment :: Environment
 defaultEnvironment = M.fromList defaultBindings
     where
       defaultBindings :: [(String, Value)]
-      defaultBindings = map (uncurry makeBuiltin) defaultBindings'
+      defaultBindings = (map (uncurry makeBuiltin) builtins ++
+                             defaultConstants)
 
-      defaultBindings' = [ ("boolEq", 2), ("intEq", 2),
-                           ("strEq", 2), ("id", 1),
-                           ("concat", 2), ("intToString", 1),
-                           ("plus", 2), ("fst", 1),
-                           ("snd", 1), ("length", 1),
-                           ("map", 2), ("reduce", 3),
-                           ("filter", 2), ("concatMap", 2)
+      builtins = [ ("boolEq", 2), ("intEq", 2),
+                   ("strEq", 2), ("id", 1),
+                   ("concat", 2), ("intToString", 1),
+                   ("plus", 2), ("fst", 1),
+                   ("snd", 1), ("length", 1),
+                   ("map", 2), ("reduce", 3),
+                   ("filter", 2), ("concatMap", 2)
+                 ]
+
+      defaultConstants = [ ("True", VBool True),
+                           ("False", VBool False),
+                           ("owners", ownersList),
+                           ("accounts", accountsList)
                          ]
+
+      vint = VInt
+      vstr = VStr
+      makeTable = VList . map VTuple
+      ownersList   = makeTable [[(vstr "name1"), (vint 123)],
+                                [(vstr "name2"), (vint 456)],
+                                [(vstr "name3"), (vint 789)]]
+      accountsList = makeTable [[(vint 123), (vint 23)],
+                                [(vint 456), (vint 56)],
+                                [(vint 789), (vint 100)]]
+
 
 makeBuiltin :: String -> Int -> (String, Value)
 makeBuiltin name argsReq = let f = builtinFun name
@@ -843,3 +863,15 @@ filter_ f l = builtinApp "filter" [f, l]
 
 concatMap_ :: AST -> AST -> AST
 concatMap_ f l = builtinApp "concatMap" [f, l]
+
+query :: [(String, String)] -> [AST] -> [AST] -> AST
+query [] _ _ = error "The SELECT list is not allowed to be empty!"
+query _ _ [] = error "The RETURN list is not allowed to be empty!"
+query sel grd retn = query' sel grd retn
+    where
+      query' :: [(String, String)] -> [AST] -> [AST] -> AST
+      query' [] [] ret             = (list [(tuple ret)])
+      query' [] (g:gs) rs          =
+          (ifThenElse g (query' [] gs rs) (list []))
+      query' ((v, table):ss) gs rs =
+          (concatMap_ (lambda (var v) (query' ss gs rs)) (var table))
