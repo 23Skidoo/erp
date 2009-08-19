@@ -208,7 +208,8 @@ defaultTypingContext = M.fromList builtinTypes
            ("length", forAllTS ["a"] simpleLengthType),
            ("map",    forAllTS ["a", "b"] simpleMapType),
            ("reduce", forAllTS ["a", "b"] simpleReduceType),
-           ("filter", forAllTS ["a"] simpleFilterType)
+           ("filter", forAllTS ["a"] simpleFilterType),
+           ("concatMap", forAllTS ["a", "b"] simpleConcatMapType)
           ]
       simpleFstType    = STFun (STTuple [STBase "a", STBase "b"]) (STBase "a")
       simpleSndType    = STFun (STTuple [STBase "a", STBase "b"]) (STBase "b")
@@ -227,6 +228,10 @@ defaultTypingContext = M.fromList builtinTypes
       -- (a -> bool) -> [a] -> [a]
       simpleFilterType = STFun (STFun (STBase "a") STBool)
                          (STFun (STList (STBase "a")) (STList (STBase "a")))
+
+      -- (a -> [b]) -> [a] -> [b]
+      simpleConcatMapType = STFun (STFun (STBase "a") (STList (STBase "b")))
+                            (STFun (STList (STBase "a")) (STList (STBase "b")))
 
 
 
@@ -568,7 +573,7 @@ defaultEnvironment = M.fromList defaultBindings
                            ("plus", 2), ("fst", 1),
                            ("snd", 1), ("length", 1),
                            ("map", 2), ("reduce", 3),
-                           ("filter", 2)
+                           ("filter", 2), ("concatMap", 2)
                          ]
 
 makeBuiltin :: String -> Int -> (String, Value)
@@ -640,6 +645,14 @@ builtinFun name args env
            l <- fromVList secondArg
            ret <- mapM (applyClosure env f) l
            return . VList $ ret
+
+    | name == "concatMap" =
+        do checkArgs 2
+           f <- fromClosure firstArg
+           l <- fromVList secondArg
+           ret <- mapM (applyClosure env f) l
+           ret2 <- mapM fromVList ret
+           return . VList $ concat ret2
 
     | name == "reduce" =
         do checkArgs 3
@@ -790,40 +803,43 @@ builtinApp :: String -> [AST] -> AST
 builtinApp n args = foldl' AApp (builtin n) args
 
 id_ :: AST -> AST
-id_ x = AApp (ABuiltin "id") x
+id_ x = builtinApp "id" [x]
 
 boolEq :: AST -> AST -> AST
-boolEq b1 b2 = AApp (AApp (ABuiltin "boolEq") b1) b2
+boolEq b1 b2 = builtinApp "boolEq" [b1, b2]
 
 intEq :: AST -> AST -> AST
-intEq i1 i2 = AApp (AApp (ABuiltin "intEq") i1) i2
+intEq i1 i2 = builtinApp "intEq" [i1, i2]
 
 strEq :: AST -> AST -> AST
-strEq s1 s2 = AApp (AApp (ABuiltin "strEq") s1) s2
+strEq s1 s2 = builtinApp "strEq" [s1, s2]
 
 plus :: AST -> AST -> AST
-plus e1 e2 = AApp (AApp (ABuiltin "plus") e1) e2
+plus e1 e2 = builtinApp "plus" [e1, e2]
 
 concat_ :: AST -> AST -> AST
-concat_ e1 e2 = AApp (AApp (ABuiltin "concat") e1) e2
+concat_ e1 e2 = builtinApp "concat" [e1, e2]
 
 intToString :: AST -> AST
-intToString e1 = AApp (ABuiltin "intToString") e1
+intToString e1 = builtinApp "intToString" [e1]
 
 length_ :: AST -> AST
-length_ e1 = AApp (ABuiltin "length") e1
+length_ e1 = builtinApp "length" [e1]
 
 fst_ :: AST -> AST
-fst_ e1 = AApp (ABuiltin "fst") e1
+fst_ e1 = builtinApp"fst" [e1]
 
 snd_ :: AST -> AST
-snd_ e1 = AApp (ABuiltin "snd") e1
+snd_ e1 = builtinApp "snd" [e1]
 
 reduce :: AST -> AST -> AST -> AST
-reduce f v l = (AApp (AApp (AApp (ABuiltin "reduce") f) v) l)
+reduce f v l = builtinApp "reduce" [f, v, l]
 
 map_ :: AST -> AST -> AST
-map_ f l = (AApp (AApp (ABuiltin "map") f) l)
+map_ f l = builtinApp "map" [f, l]
 
 filter_ :: AST -> AST -> AST
-filter_ f l = (AApp (AApp (ABuiltin "filter") f) l)
+filter_ f l = builtinApp "filter" [f, l]
+
+concatMap_ :: AST -> AST -> AST
+concatMap_ f l = builtinApp "concatMap" [f, l]

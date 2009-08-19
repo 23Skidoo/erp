@@ -121,7 +121,10 @@ astTests = [
  (ifThenElse (str "abc") (str "abc") (str "bcd")),
  (ifThenElse (strEq (str "abc") (str "bcd")) (bool True) (int 1)),
  (ifThenElse (strEq (str "abc") (str "bcd"))
-                 (bool True) (app (var "id") (bool False)))
+                 (bool True) (app (var "id") (bool False))),
+ (concatMap_ (lambda (var "x") (list [(var "x")]))
+                 (list [(int 1), (int 2), (int 3)])),
+ (concatMap_ (var "id") (list [(int 1), (int 2), (int 3)]))
     ]
 
 -- Type inference tests.
@@ -176,7 +179,9 @@ inferenceExpected =
      "string",
      "Unsolvable constraints",
      "Unsolvable constraints",
-     "bool"
+     "bool",
+     "[int]",
+     "Unsolvable constraints"
     ]
 
 inferenceTests :: [Test]
@@ -234,7 +239,9 @@ evaluationExpected =
      "\"abc\"",
      "The value is not a boolean!",
      "1",
-     "False"
+     "False",
+     "[1, 2, 3]",
+     "The value is not a list!"
     ]
 
 evaluationTests :: [Test]
