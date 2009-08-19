@@ -757,8 +757,8 @@ tuple e = ATuple e
 builtin :: String -> AST
 builtin = ABuiltin
 
-builtin_app :: String -> [AST] -> AST
-builtin_app n args = foldl' AApp (builtin n) args
+builtinApp :: String -> [AST] -> AST
+builtinApp n args = foldl' AApp (builtin n) args
 
 boolEq :: AST -> AST -> AST
 boolEq b1 b2 = AApp (AApp (ABuiltin "boolEq") b1) b2

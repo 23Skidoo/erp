@@ -73,7 +73,7 @@ astTests = [
  (let_ [("f", (lambda (var "x") (var "x")))]
   (tuple [(app (var "f") (str "abc")),
           (app (var "f") (int 1))])),
- (builtin_app "plus" [(int 1), (int 2), (int 3)]),
+ (builtinApp "plus" [(int 1), (int 2), (int 3)]),
  (app (var "fst") (tuple [(int 1), (int 2), (int 3)])),
  (app (var "fst") (tuple [(int 1), (int 2)])),
  (app (var "snd") (tuple [(int 1), (str "2")])),
@@ -101,7 +101,7 @@ astTests = [
   (intToString (plus (int 35) (int 7)))),
  (let_ [("f", (lambda (var "x") (var "x")))]
   (app (var "f") (int 1))),
- (builtin_app "plus" [(int 1), (int 2)]),
+ (builtinApp "plus" [(int 1), (int 2)]),
  (let_ [("f", (app (builtin "plus") (int 1)))] (app (var "f") (int 22))),
  (app (lambda (var "x") (snd_ (var "x"))) (tuple [(int 1), (bool False)])),
  (map_ (lambda (var "x") (plus (var "x") (int 64))) (list [(int 1), (int 2)])),
