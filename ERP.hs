@@ -195,8 +195,8 @@ defaultTypingContext = M.fromList builtinTypes
            ("boolEq", STFun STBool (STFun STBool STBool)),
            ("intEq", STFun STInt (STFun STInt STBool)),
            ("strEq", STFun STStr (STFun STStr STBool)),
-           ("concat", STFun STStr (STFun STStr STStr)),
-           ("intToString", STFun STInt STStr),
+           ("concatStr", STFun STStr (STFun STStr STStr)),
+           ("intToStr", STFun STInt STStr),
            ("plus", STFun STInt (STFun STInt STInt)),
            ("owners", STList (STTuple [STStr, STInt])),
            ("accounts", STList (STTuple [STInt, STInt]))
@@ -572,7 +572,7 @@ defaultEnvironment = M.fromList defaultBindings
 
       builtins = [ ("boolEq", 2), ("intEq", 2),
                    ("strEq", 2), ("id", 1),
-                   ("concat", 2), ("intToString", 1),
+                   ("concatStr", 2), ("intToStr", 1),
                    ("plus", 2), ("fst", 1),
                    ("snd", 1), ("length", 1),
                    ("map", 2), ("reduce", 3),
@@ -631,13 +631,13 @@ builtinFun name args env
            i2 <- fromVInt secondArg
            return . VInt $ i1 + i2
 
-    | name == "concat" =
+    | name == "concatStr" =
         do checkArgs 2
            s1 <- fromVStr firstArg
            s2 <- fromVStr secondArg
            return . VStr $ s1 ++ s2
 
-    | name == "intToString" =
+    | name == "intToStr" =
         do checkArgs 1
            i <- fromVInt firstArg
            return . VStr $ show i
@@ -837,11 +837,11 @@ strEq s1 s2 = builtinApp "strEq" [s1, s2]
 plus :: AST -> AST -> AST
 plus e1 e2 = builtinApp "plus" [e1, e2]
 
-concat_ :: AST -> AST -> AST
-concat_ e1 e2 = builtinApp "concat" [e1, e2]
+concatStr :: AST -> AST -> AST
+concatStr e1 e2 = builtinApp "concatStr" [e1, e2]
 
-intToString :: AST -> AST
-intToString e1 = builtinApp "intToString" [e1]
+intToStr :: AST -> AST
+intToStr e1 = builtinApp "intToStr" [e1]
 
 length_ :: AST -> AST
 length_ e1 = builtinApp "length" [e1]

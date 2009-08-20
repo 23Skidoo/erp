@@ -64,7 +64,7 @@ astTests = [
  (lambda (var "y") (lambda (var "x") (str "abc"))),
  (lambda (var "a") (lambda (var "z")
                     (lambda (var "y") (lambda (var "x") (int 42))))),
- (lambda (var "x") (concat_ (var "x") (var "x"))),
+ (lambda (var "x") (concatStr (var "x") (var "x"))),
  (let_ [("f", (int 1)), ("f", (int 2))]
   (plus (var "f") (var "f"))),
  (let_ [("f", (lambda (var "x") (var "x")))]
@@ -97,8 +97,8 @@ astTests = [
  (list [(int 1), (int 2), (int 3)]),
  (list [(int 1), (int 2), (str "abc")]),
 
- (concat_ (str "answer: ")
-  (intToString (plus (int 35) (int 7)))),
+ (concatStr (str "answer: ")
+  (intToStr (plus (int 35) (int 7)))),
  (let_ [("f", (lambda (var "x") (var "x")))]
   (app (var "f") (int 1))),
  (builtinApp "plus" [(int 1), (int 2)]),
@@ -208,7 +208,7 @@ evaluationExpected =
      "(\\x -> AStr \"abc\")",
      "(\\y -> AAbs (AVar \"x\") (AStr \"abc\"))",
      "(\\a -> AAbs (AVar \"z\") (AAbs (AVar \"y\") (AAbs (AVar \"x\") (AInt 42))))",
-     "(\\x -> AApp (AApp (ABuiltin \"concat\") (AVar \"x\")) (AVar \"x\"))",
+     "(\\x -> AApp (AApp (ABuiltin \"concatStr\") (AVar \"x\")) (AVar \"x\"))",
      "Conflicting definitions in let-expression!",
      "(\"abc\", \"abc\")",
      "(\"abc\", 1)",
