@@ -127,7 +127,9 @@ astTests = [
  (concatMap_ (var "id") (list [(int 1), (int 2), (int 3)])),
  (query [("o", "owners"), ("a", "accounts")]
   [(intEq (snd_ (var "o")) (fst_ (var "a")))]
-  [(fst_ (var "o")), (snd_ (var "a"))])
+  [(fst_ (var "o")), (snd_ (var "a"))]),
+ (reduce (var "plus") (int 0)
+  (map_ (var "fst") (query [("a", "accounts")] [] [(snd_ (var "a")), (fst_ (var "a"))])))
     ]
 
 -- Type inference tests.
@@ -185,7 +187,8 @@ inferenceExpected =
      "bool",
      "[int]",
      "Unsolvable constraints",
-     "[(string, int)]"
+     "[(string, int)]",
+     "int"
     ]
 
 inferenceTests :: [Test]
@@ -246,7 +249,8 @@ evaluationExpected =
      "False",
      "[1, 2, 3]",
      "The value is not a list!",
-     "[(\"name1\", 23), (\"name2\", 56), (\"name3\", 100)]"
+     "[(\"name1\", 23), (\"name2\", 56), (\"name3\", 100)]",
+     "179"
     ]
 
 evaluationTests :: [Test]
