@@ -870,7 +870,9 @@ query _ _ [] = error "The RETURN list is not allowed to be empty!"
 query sel grd retn = query' sel grd retn
     where
       query' :: [(String, String)] -> [AST] -> [AST] -> AST
-      query' [] [] ret             = (list [(tuple ret)])
+      query' [] [] ret | length ret == 1 = (list ret)
+                       | otherwise       = (list [(tuple ret)])
+
       query' [] (g:gs) rs          =
           (ifThenElse g (query' [] gs rs) (list []))
       query' ((v, table):ss) gs rs =

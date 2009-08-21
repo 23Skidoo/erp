@@ -129,7 +129,7 @@ astTests = [
   [(intEq (snd_ (var "o")) (fst_ (var "a")))]
   [(fst_ (var "o")), (snd_ (var "a"))]),
  (reduce (var "plus") (int 0)
-  (map_ (var "fst") (query [("a", "accounts")] [] [(snd_ (var "a")), (fst_ (var "a"))])))
+  (query [("a", "accounts")] [] [(snd_ (var "a"))]))
     ]
 
 -- Type inference tests.
