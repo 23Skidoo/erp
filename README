@@ -1,0 +1,6 @@
+A toy interpreted language demonstrating how surprisingly easy it is to
+implement type inference.
+
+ERP stands for Enterprise Resource Planning (the assignment was to design a type
+system for a database query language). See the report for details.
+
