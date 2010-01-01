@@ -1,0 +1,442 @@
+\documentclass[10pt, oneside]{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{titling}
+\usepackage[nottoc, notlof]{tocbibind}
+\usepackage[pdftex]{graphicx}
+\usepackage[kerning,spacing]{microtype}
+\usepackage{verbatim}
+
+\usepackage[bookmarksnumbered, unicode, pdftex]{hyperref}
+\usepackage {mathpartir}
+
+\newcommand{\lb}{[\![}       % left double bracket
+\newcommand{\rb}{]\!]}       % right double bracket
+
+\author{Mikhail Glushenkov, \texttt{<c05mgv@cs.umu.se>} \\
+        David Markvica, \texttt{<david.markvica@gmx.net>}}
+
+\title{Exercise for Types and Type Inference}
+
+\begin{document}
+\pagestyle{headings}
+\pdfbookmark[1]{Front page}{beg}
+\begin{titlingpage}
+  \texttt{Types at Work, August 2009}
+  \hfill
+  \texttt{DTU Informatics and DIKU}
+  \vskip 120pt
+  \begin{center}
+  \LARGE\thetitle
+  \par\end{center}\vskip 0.5em
+  \begin{center}
+  \large\theauthor
+  \par\end{center}
+  \begin{center}
+  Date: \today
+  \par\end{center}
+  \vfill
+  % \begin{center}
+  %   \textbf{Instructor} \linebreak \linebreak
+  %   Stephen J. Hegner
+  % \end{center}
+\end{titlingpage}
+
+% TOC
+%\thispagestyle{empty}
+%\pagebreak
+%\setcounter{page}{0}
+%\pdfbookmark[1]{Table of contents}{tab}
+%\tableofcontents
+\pagebreak
+
+% i Sverige har vi normalt inget indrag vid nytt stycke
+\setlength{\parindent}{0pt}
+% men däremot lite mellanrum
+\setlength{\parskip}{10pt}
+
+\section {Introduction}
+
+The purpose of this assignment was to think about the design of a query language that should be used in Enterprise Resource Planning (ERP) systems. The language was required to be parametrically polymorphic to allow for code reuse and support relational calculus style queries and aggregations.
+An Example of a relational calculus style query is:
+\begin{tabbing}
+$\lambda$ (owners, accounts).\\
+~ \{ (name, amount) : \= (name, accountnr) $\in$ owners,\\
+\> (accountnr', amount) $\in$ accounts $|$\\
+\> accountnr = accountnr'\}
+\end{tabbing}
+
+
+And here is one of an aggregation:\\
+\\
+$\lambda$ accounts. reduce (+) 0 \{ amount : (accountnr', amount) $\in$ accounts \}
+
+We wanted to get a working system for trying out our ideas up and running as fast as possible. We skipped the parsing step and started out with an interpreter of the simple untyped lambda calculus that gets an AST as input. We added basic types such as bool, int and string and started working on a type inference system. After that we added lists and tuples (our database tables are lists of tuples) to the language. A polymorphic let was added finally we were able to implement reduce and concatMap, which form the basis of our queries. With this we are able to express the examples above.
+
+The rest of the report is composed as follows:
+Section 2 provides an in-detail discussion of our query language and its implementation,
+Sections 3, 4 and 5 contain the formal description of the syntax, typing rules and semantics respectively.
+Section 6 gives the output of a typical command-line session with our system.
+
+\section {Discussion}
+
+Our proof-of-concept implementation is basically a simple purely functional
+language with ML typing (including parametric polymorphism) but without general
+recursion (it wouldn't be hard to add a \texttt{fix} combinator, but we didn't
+feel like we needed it). The system consists of a typechecker and an
+interpreter, which are completely separate and can be used independently. We
+used Haskell as the implementation language and borrowed its ideas on list
+comprehensions to implement queries. Since the database tables are represented
+as lists of tuples in our system, Haskell's comprehensions and our queries are
+actually the same thing. As a side-note, the creators of Haskell also admit the
+similarity between list comprehensions and database queries --- they even went
+as far as adding SQL-like operators like \texttt{ORDER BY} to the syntax of list
+comprehensions.  This feature is known as "comprehensive comprehensions" and is
+present in the recent versions of the Glasgow Haskell Compiler.
+
+Given that the database tables are represented as lists of tuples, aggregations
+map straightforwardly to the standard left fold function (implemented as a
+built-in primitive \texttt{reduce} in our language). The interpreter allows to
+partially apply any function, so the example aggregation from the assignment can
+be expressed as \texttt{(reduce (var "plus") (int 0) (list \ldots))}. The
+queries are somewhat more complicated, but taking inspiration from Haskell we
+were able to implement them without having to extend the type system.
+
+\begin{figure}[h!]
+  \centering
+\begin{verbatim}
+sugaredQuery = [(name, amount) | (name, accountnr) <- owners,
+                (accountnr', amount) <- accounts,
+                accountnr == accountnr']
+\end{verbatim}
+
+      \caption{Example of a list comprehension in Haskell}
+  \label{fig:sugar}
+\end{figure}
+
+\begin{figure}[h!]
+  \centering
+
+\begin{verbatim}
+desugaredQuery =
+       concatMap (\(name, accountnr) ->
+            concatMap (\(accountnr', amount) ->
+                           if accountnr == accountnr'
+                           then [(name, amount)]
+                           else []
+                      ) accounts
+            ) owners
+\end{verbatim}
+
+  \caption{Example of how a list comprehension is desugared in Haskell}
+  \label{fig:desugar}
+\end{figure}
+
+\begin{figure}[h!]
+  \centering
+
+\begin{verbatim}
+ (query [("o", "owners"), ("a", "accounts")]
+  [(intEq (snd_ (var "o")) (fst_ (var "a")))]
+  [(fst_ (var "o")), (snd_ (var "a"))])
+\end{verbatim}
+
+  \caption{Example of how a query is expressed in our language}
+  \label{fig:ours}
+\end{figure}
+
+In Haskell, list comprehensions are actually a syntax sugar for a chain of
+lambda-abstractions glued by repeated applications of \texttt{concatMap} (see
+section~\ref{sec:sem} for the description of this
+function). Figures~\ref{fig:sugar} and~\ref{fig:desugar} shows how the example
+query from the assignment is desugared. In our implementation, we basically do
+the same thing: figure~\ref{fig:ours} shows how the example is expressed in our
+implementation using some ``syntax sugar'' of our own. The purpose of the
+\texttt{query} combinator is to build an abstract syntax tree equivalent to the
+one presented in figure~\ref{fig:desugar}: it takes a \textit{selection} list,
+that specifies the input data, a \textit{guard} list, that describes constraints
+on the selection elements, and a \textit{return} list, which describes the
+returned tuple.
+
+We also provided a constructive proof that inference can be performed for our
+language by implementing full ML-style typechecking. The typechecker uses
+the standard constraint unification algorithm; Benjamin Pierce's book ``Types
+and Programming Languages'' proved to be very helpful while working on this
+part. Since our language is basically a primitive version of ML, it has all the
+same pleasant properties such as principal types and decidable inference; the
+typechecker is always able to infer the most general type. This wasn't
+rigorously proved though, since the emphasis of our work was on providing a
+working implementation; on the other hand, our language has a relatively
+comprehensive test suite, and so far none of the programs that pass the type
+check has ``gone wrong''.
+
+
+
+\section {Abstract Syntax}
+
+\begin{center}
+\begin{tabular}{rl}
+\multicolumn{2}{c}{abstract syntax}\\
+\hline\\
+
+b ::=& \textbf{bool} boolConst\\
+i ::=& \textbf{int} intConst\\
+s ::=& \textbf{str \"}strConst\textbf{\"}\\
+c ::=& b $|$ i $|$ s\\
+v ::=& \textbf{var} v\\
+
+e ::=& \textbf{lambda} $x$ \textbf{.} $e_1$ $|$ $e_1$ $e_2$ $|$ \textbf{ifThenElse} $e_1$ $e_2$ $e_3$\\
+&$|$ \textbf{let} [$x_1$ = $e_1$, $x_2$ = $e_2$ \ldots $x_n$ = $e_n$] \textbf{in} $e'$\\
+&$|$ c $|$ v $|$ \textbf{(}$e_1$, $e_2$ \ldots $e_n$\textbf{)} $|$ \textbf{[}$e_1$, $e_2$ \ldots $e_n$\textbf{]}\\
+
+% boolConst ::=& \textbf{True} $|$ \textbf{False}\\
+% intConst ::=& \textbf{0} | \textbf{1} 
+
+\end{tabular}
+\end{center}
+
+
+
+\begin{center}
+\begin{tabular}{rl}
+\multicolumn{2}{c}{builtin functions}\\
+\hline\\
+
+f ::=& \textbf{id} $e_1$ $|$ \textbf{concatStr} $e_1$ $e_2$ $|$ \textbf{intToStr} $e_1$ $|$ \textbf{plus} $e_1$ $e_2$\\
+&$|$ \textbf{boolEq} $e_1$ $e_2$ $|$ \textbf{intEq} $e_1$ $e_2$ $|$ \textbf{strEq} $e_1$ $e_2$\\
+&$|$ \textbf{fst} $e_1$ $|$ \textbf{snd} $e_1$ $|$ \textbf{length} $e_1$ $|$ \textbf{map} $e_1$ $e_2$ $e_3$ \\
+&$|$ \textbf{reduce} $e_1$ $e_2$ $e_3$ $|$ \textbf{concatMap} $e_1$ $e_2$ $e_3$ $|$ \textbf{filter} $e_1$ $e_2$ \\ 
+
+% boolConst ::=& \textbf{True} $|$ \textbf{False}\\
+% intConst ::=& \textbf{0} | \textbf{1} 
+
+\end{tabular}
+\end{center}
+
+
+
+\begin{center}
+\begin{tabular}{rl}
+\multicolumn{2}{c}{builtin constants}\\
+\hline\\
+
+c ::=& \textbf{True} $|$ \textbf{False} $|$ \textbf{owners} $|$ \textbf{accounts}\\
+
+\end{tabular}
+\end{center}
+
+
+\section {Typing Rules}
+
+\begin{center}
+\begin{tabular}{l}
+\multicolumn{1}{c}{simple types}\\
+\hline\\
+
+$\tau$ ::= \emph{bool} $|$ \emph{int} $|$ \emph{string} $|$ $\alpha$ $|$ $\tau'$ $\rightarrow$ $\tau''$ $|$ \textbf{list} ($\tau'$) $|$ \textbf{tuple} ($\tau'$, $\tau''$, \ldots)\\
+
+\\
+\end{tabular}
+\end{center}
+
+
+
+\begin{center}
+\begin{tabular}{l}
+\multicolumn{1}{c}{type schemes}\\
+\hline\\
+
+$\sigma$ ::= $\tau$ $|$ $\forall$$\alpha$.$\sigma$
+
+\\
+\end{tabular}
+\end{center}
+
+
+
+\begin{center}
+\begin{tabular}{l}
+\multicolumn{1}{c}{typing rules}\\
+\hline\\
+
+\begin{mathpar}
+\inferrule* [Left=VAR]
+  {A \{ x : \tau \} \vdash x : \tau} 
+  {}
+\end{mathpar}\\~\\
+
+\begin{mathpar}
+\inferrule* [Left=CONST]
+  {\vdash \textbf{bool} ~ b :: bool  \\  \vdash \textbf{int} ~ i :: int  \\  \vdash \textbf{str} ~ s :: string} 
+  {}
+\end{mathpar}\\~\\
+
+\begin{mathpar}
+ \inferrule* [Left=ABSTR]
+  {A \{ x : \tau \} \vdash e : \tau'} 
+  {A \vdash \lambda x . e : \tau \rightarrow \tau'} 
+\end{mathpar}\\~\\
+
+\begin{mathpar}
+ \inferrule* [Left=APP]
+  {A \vdash e : \tau \rightarrow \tau'  \\  A \vdash e' : \tau}
+  {A \vdash e e' : \tau'}
+\end{mathpar}\\~\\
+
+\begin{mathpar}
+ \inferrule* [Left=LET]
+  {A \vdash e : \sigma'  \\  A \{x : \sigma'\} \vdash e : \sigma}
+  {A \vdash \mathbf{let} ~ x = e' ~ \mathbf{in} ~ e : \sigma}
+\end{mathpar}\\~\\
+
+\begin{mathpar}
+ \inferrule* [Left=GEN]
+  {A \vdash e : \sigma'  \\  \alpha \notin FV(A)}
+  {A \vdash e : \forall\alpha . \sigma}
+\end{mathpar}\\~\\
+
+\begin{mathpar}
+ \inferrule* [Left=INST]
+  {A \vdash e : \forall\alpha . \sigma}
+  {A \vdash e : \sigma [\tau / \alpha]}
+\end{mathpar}\\~\\
+
+\begin{mathpar}
+ \inferrule* [Left=IF]
+  {A \vdash cond :: bool  \\  A \vdash e_1 :: \tau  \\ A \vdash e_2 :: \tau}
+  {A \vdash (\mathbf{ifThenElse} ~ cond ~ e_1 ~ e_2) :: \tau}
+\end{mathpar}\\~\\
+
+\begin{mathpar}
+ \inferrule* [Left=TUPLE]
+  {A \vdash e_1 :: \tau_1  \\  A \vdash e_2 :: \tau_2  \\  \ldots  \\  A \vdash e_n :: \tau_n}
+  {A \vdash \textbf{(}e_1, e_2 \ldots e_n\textbf{)} :: tuple (\tau_1, \tau_2 \ldots \tau_n)}
+\end{mathpar}\\~\\
+
+\begin{mathpar}
+ \inferrule* [Left=LIST]
+  {A \vdash e_1 :: \tau  \\  A \vdash e_2 :: \tau  \\  \ldots  \\  A \vdash e_n :: \tau}
+  {A \vdash \textbf{[} e_1, e_2 \ldots e_n \textbf{]} :: list ~ \tau}
+\end{mathpar}\\~\\
+
+\\
+\end{tabular}
+\end{center}
+
+
+\section{Semantics}
+\label{sec:sem}
+
+    
+\begin{center}
+\begin{tabular}{l}
+\multicolumn{1}{c}{value domains}\\
+\hline\\
+value ::= bool $|$ int $|$ string $|$ list \emph{value} $|$ tuple ($value_1$, $value_2$ \ldots $value_n$) $|$ closure \emph{Env} ($\lambda x . e$) $|$ $\perp$\\
+\end{tabular}
+\end{center}
+
+
+
+\begin{center}
+\begin{tabular}{l}
+\multicolumn{1}{c}{semantic equations}\\
+\hline\\
+
+%% Intgr
+$\mathcal{E}\lb Env, bool ~ \mathbf{b}\rb$ $=b$\\
+$\mathcal{E}\lb Env, int ~ \mathbf{i}\rb$ $=i$\\
+$\mathcal{E}\lb Env, string ~ \mathbf{s}\rb$ $=s$\\
+$\mathcal{E}\lb Env, tuple (e_1, e_2 \ldots e_n) \rb $ $= tuple ~ (\mathcal{E} \lb Env, e_1\rb, \mathcal{E} \lb Env, e_2 \rb \ldots \mathcal{E}\lb Env, e_n \rb)$\\
+$\mathcal{E}\lb Env, list (e_1, e_2 \ldots e_n) \rb $ $= list ~ (\mathcal{E} \lb Env, e_1\rb, \mathcal{E} \lb Env, e_2 \rb \ldots \mathcal{E}\lb Env, e_n \rb)$\\
+
+$\mathcal{E}\lb Env, \mathbf{var} ~ v\rb$ $=$ \textbf{if} $v \in Env$ ~ \textbf{then} $lookup(Env, v)$ ~ \textbf{else} $\perp$\\
+
+$\mathcal{E}\lb Env, \textbf{(app} ~ e_1 e_2\textbf{)}\rb$ $=
+applyClosure (\mathcal{E} \lb Env, ~ e_1 \rb, \mathcal{E} \lb Env, ~ e_2 \rb)$ \\
+
+$\mathcal{E}\lb Env, \textbf{(lambda} ~ x ~ \textbf{.} ~ e_1\textbf{)}\rb$ $=$
+$closure(Env, (\lambda x . e))$\\
+$\mathcal{E}\lb Env, \mathbf{let} ~ x_1 = e_1, x_2 = e_2 \ldots x_n = e_n ~ \mathbf{in} ~ e\rb$ $=$
+$\mathcal{E}\lb Env[x_1 = \mathcal{E}\lb Env, e_1\rb,$\\
+~~~~~~~~~ $x_2 = \mathcal{E}\lb Env, e_2\rb \ldots
+x_n = \mathcal{E}\lb Env, e_n\rb]
+ , e\rb$\\
+
+$\mathcal{E}\lb Env, \mathbf{ifThenElse} ~ cond ~ e_1 ~ e_2\rb$ $=$ \textbf{if} $\mathcal{E}\lb Env, cond \rb$ ~ \textbf{then} $\mathcal{E}\lb Env, e_1 \rb$ ~ \textbf{else} $\mathcal{E}\lb Env, e_2 \rb$\\
+
+
+\\
+$applyClosure(closure(Env, \lambda x . e), Arg) = \mathcal{E}\lb Env[x = Arg], e\rb$
+
+\\
+\end{tabular}
+\end{center}
+
+
+
+\begin{center}
+\begin{tabular}{l}
+\multicolumn{1}{c}{semantic equations for some builtin function (\emph{informal})}\\
+\hline\\
+
+\textbf{id (}$x$\textbf{)} = $x$\\
+
+\textbf{fst (}$x_1$\textbf{,} $x_2$\textbf{)} = $x_1$\\
+
+\textbf{snd (}$x_1$\textbf{,} $x_2$\textbf{)} = $x_2$\\
+
+\textbf{plus (}$i_1$\textbf{,} $i_2$\textbf{)} = $i_1 + i_2$\\
+
+\textbf{length [}$x_1$\textbf{,} $x_2$\textbf \ldots $x_n${]} = $n$\\
+
+\textbf{concatMap} f \textbf{[}$x_1$\textbf{,} $x_2$\textbf \ldots $x_n${]} = (app f $x_1$) ++ (app f $x_2$) ++ \ldots ++ (app f $x_n$)\\
+
+\textbf{reduce} f v \textbf{[}$x_1$\textbf{,} $x_2$\textbf \ldots $x_n${]} = (app f v (app f $x_1$ (app f $x_2$ \ldots (app f $x_{n-1}$ $x_n$) \ldots )))\\
+
+\\
+\end{tabular}
+\end{center}
+
+\pagebreak
+
+\section{Usage}
+
+To run the system, you need to have the Glasgow Haskell Compiler installed on your computer. A typical session looks like this:
+
+\begin{verbatim}
+$$ ghci ERP.hs                                                                                                                 GHCi, version 6.10.4: http://www.haskell.org/ghc/  :? for help
+[1 of 1] Compiling ERP              ( ERP.hs, interpreted )
+Ok, modules loaded: ERP.
+*ERP> printType (int 1)
+int
+*ERP> printResult (int 1)
+1
+*ERP> printType (app (lambda (var "x") (var "x")) (int 42))
+int
+*ERP> printResult (app (lambda (var "x") (var "x")) (int 42))
+42
+*ERP> printResult (var "owners")
+[("name1", 123), ("name2", 456), ("name3", 789)]
+*ERP> printResult (var "accounts")
+[(123, 23), (456, 56), (789, 100)]
+*ERP> printResult (query [("o", "owners"), ("a", "accounts")]
+                  [(intEq (snd_ (var "o")) (fst_ (var "a")))]
+                  [(fst_ (var "o")), (snd_ (var "a"))])
+[("name1", 23), ("name2", 56), ("name3", 100)]
+*ERP> printResult (reduce (var "plus") (int 0) (map_ (var "fst")
+                             (query [("a", "accounts")] []
+                             [(snd_ (var "a")), (fst_ (var "a"))])))
+179
+\end{verbatim}
+
+You can find more examples in the Test.hs file
+
+%\pagebreak
+%\appendix
+%\section {Source Code}
+
+\end{document}
